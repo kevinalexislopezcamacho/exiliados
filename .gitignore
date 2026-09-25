@@ -1,0 +1,15 @@
+node_modules/
+
+# Secrets / sensitive data - never commit
+.env
+.env.*
+!.env.example
+usuarios-acceso-crear-contrasena.txt
+**/data.db
+**/data.db-shm
+**/data.db-wal
+**/data.db.bak-*
+
+# Logs and build artifacts
+dev-server.log
+**/*.tsbuildinfo
