@@ -118,20 +118,19 @@ Elimina el miembro y sus sesiones activas.
   "success": true,
   "data": {
     "exiliados": [],
-    "rayo": [{ "id": 1, "name": "Rodo", "flag": "🇲🇽" }],
-    "chispa": [{ "id": 3, "name": "Miembro Chispa 1", "flag": "" }]
+    "rayo": [{ "id": 1, "name": "Rodo", "flag": "🇲🇽" }]
   },
-  "count": 6
+  "count": 1
 }
 ```
-Alimenta la sección "Nuestros Clanes" del landing (tabs Exiliados/Rayo/Chispa). No requiere sesión.
+Alimenta la sección "Nuestros Clanes" del landing (tabs Exiliados/Rayo). No requiere sesión.
 
 ### Rankings de puntos (solo capitanes)
 
 Protegido con `requireCaptain`: exige la cookie `auth-token` de una sesión con `role = 'captain'` (401 si no hay sesión, 403 si no es capitán).
 
 #### `GET /api/rankings`
-Devuelve el ranking de **Rayo** y **Exiliados** (Chispa no tiene ranking todavía), ordenado por puntos (`wins - losses`) descendente:
+Devuelve el ranking de **Rayo** y **Exiliados**, ordenado por puntos (`wins - losses`) descendente:
 ```json
 {
   "success": true,
@@ -156,7 +155,7 @@ SQLite vía `better-sqlite3`, archivo `backend/data.db` (se ignora en git). Tabl
 - `sessions` — tokens de sesión con expiración
 - `warriors` — guerreros/líderes del clan (los 5 capitanes)
 - `stats` — estadísticas mostradas en el home
-- `clan_members` — roster público por clan (Exiliados/Rayo/Chispa), separado de `members`
+- `clan_members` — roster público por clan (Exiliados/Rayo), separado de `members`
 - `battle_results` — historial de victorias/derrotas por `clan_member_id`, de donde sale el ranking
 
 ### Usuarios por defecto (seed)

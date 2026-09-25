@@ -15,13 +15,11 @@ interface ClanMember {
 interface CommunityData {
   exiliados: ClanMember[]
   rayo: ClanMember[]
-  chispa: ClanMember[]
 }
 
 const CLANS: { key: keyof CommunityData; label: string }[] = [
   { key: "exiliados", label: "Exiliados" },
   { key: "rayo", label: "Rayo" },
-  { key: "chispa", label: "Chispa" },
 ]
 
 export function CommunitySection() {

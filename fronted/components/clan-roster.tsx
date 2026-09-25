@@ -16,7 +16,6 @@ interface ClanMember {
 interface CommunityData {
   exiliados: ClanMember[]
   rayo: ClanMember[]
-  chispa: ClanMember[]
 }
 
 const ROLE_ORDER = [

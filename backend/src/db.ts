@@ -348,13 +348,7 @@ export function initializeDatabase() {
       insertClanMember.run(name, 'exiliados', countryCode, title, index)
     })
 
-    // Chispa: roster de ejemplo, reemplazar con los nombres reales
-    // desde la tabla `clan_members` cuando se tengan.
-    for (let i = 1; i <= 4; i++) {
-      insertClanMember.run(`Miembro Chispa ${i}`, 'chispa', '', '', i - 1)
-    }
-
-    console.log('Miembros de clanes por defecto insertados (Rayo/Exiliados con roster real, Chispa es placeholder)')
+    console.log('Miembros de clanes por defecto insertados (Rayo/Exiliados con roster real)')
   }
 
   const eventCount = db.prepare('SELECT COUNT(*) as count FROM game_events').get() as { count: number }

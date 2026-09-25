@@ -15,7 +15,6 @@ interface Kpis {
 interface CommunityData {
   exiliados: Array<{ id: number }>
   rayo: Array<{ id: number }>
-  chispa: Array<{ id: number }>
 }
 
 interface BattleReportListItem {

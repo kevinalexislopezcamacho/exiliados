@@ -3,9 +3,9 @@ import { getCountryFlag, getDatabase } from '../db'
 
 const router = Router()
 
-const CLANS = ['exiliados', 'rayo', 'chispa'] as const
+const CLANS = ['exiliados', 'rayo'] as const
 
-// GET /api/community - Miembros del clan agrupados por sub-clan (Exiliados / Rayo / Chispa)
+// GET /api/community - Miembros del clan agrupados por sub-clan (Exiliados / Rayo)
 router.get('/', (_req, res) => {
   try {
     const db = getDatabase()
@@ -23,7 +23,6 @@ router.get('/', (_req, res) => {
     const data: Record<string, Array<{ id: number; name: string; flag: string; title: string }>> = {
       exiliados: [],
       rayo: [],
-      chispa: [],
     }
 
     for (const row of rows) {
