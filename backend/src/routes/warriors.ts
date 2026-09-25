@@ -4,18 +4,16 @@ import { getCountryFlag, getDatabase } from '../db'
 const router = Router()
 
 // GET /api/warriors - Obtener lista de guerreros/líderes del clan
-router.get('/', (_req, res) => {
+router.get('/', async (_req, res) => {
   try {
     const db = getDatabase()
-    const warriors = db
-      .prepare(
-        `
+    const warriors = (
+      await db.execute(`
       SELECT id, name, role, rank, nationality, country_code as countryCode, initial, image_url as imageUrl
       FROM warriors
       ORDER BY id ASC
-    `
-      )
-      .all() as Array<{
+    `)
+    ).rows as unknown as Array<{
       id: number
       name: string
       role: string
@@ -25,7 +23,6 @@ router.get('/', (_req, res) => {
       initial: string
       imageUrl: string
     }>
-    db.close()
 
     const warriorsWithFlags = warriors.map((warrior) => ({
       ...warrior,

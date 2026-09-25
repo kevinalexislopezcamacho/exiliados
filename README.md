@@ -7,7 +7,7 @@ Bienvenido a EXILIADOS, una plataforma para gestionar y mostrar los líderes, es
 - **Frontend**: Next.js 16 (React + TypeScript)
 - **Backend**: Express + TypeScript (API propia, separada del frontend)
 - **Styling**: Tailwind CSS + Shadcn/ui
-- **Base de datos**: SQLite (better-sqlite3)
+- **Base de datos**: Turso (libSQL, compatible con SQLite) vía `@libsql/client`
 - **Animaciones**: Framer Motion
 
 ## 📁 Estructura del Proyecto
@@ -178,9 +178,13 @@ npm run lint         # Verifica código
 
 ### En Vercel (Recomendado)
 
-1. Push tu código a GitHub
-2. Conecta el repo en [vercel.com](https://vercel.com)
-3. Deploy automático
+Son dos apps independientes, así que van como **dos proyectos de Vercel** desde el mismo repo (el usuario final solo entra por el link del frontend; el backend queda detrás de cámaras):
+
+1. Push tu código a GitHub.
+2. Crea una base en [turso.tech](https://turso.tech) (gratis) y copia la `Database URL` y un `Auth Token`.
+3. **Proyecto 1 (backend)**: importa el repo en [vercel.com](https://vercel.com), Root Directory = `backend`. Variables de entorno: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `FRONTEND_URL` (la URL del proyecto 2, una vez la tengas).
+4. **Proyecto 2 (frontend)**: importa el mismo repo otra vez, Root Directory = `fronted`. Variable de entorno: `BACKEND_URL` (la URL del proyecto 1).
+5. Si cambias la URL de alguno de los dos después de crearlos, actualiza la variable de entorno correspondiente en el otro proyecto y vuelve a desplegar.
 
 ### En tu servidor
 

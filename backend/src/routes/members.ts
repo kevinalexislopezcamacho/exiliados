@@ -5,13 +5,12 @@ import { requireCaptain } from '../middleware/auth'
 const router = Router()
 
 // GET /api/members - Cuentas de capitán (gestión de acceso admin del sitio)
-router.get('/', requireCaptain, (_req, res) => {
+router.get('/', requireCaptain, async (_req, res) => {
   try {
     const db = getDatabase()
-    const members = db
-      .prepare(`SELECT id, username, full_name, role, created_at FROM members WHERE role = 'captain' ORDER BY created_at DESC`)
-      .all()
-    db.close()
+    const members = (
+      await db.execute(`SELECT id, username, full_name, role, created_at FROM members WHERE role = 'captain' ORDER BY created_at DESC`)
+    ).rows
 
     res.json({ success: true, data: members, count: members.length })
   } catch (error) {
@@ -20,7 +19,7 @@ router.get('/', requireCaptain, (_req, res) => {
 })
 
 // POST /api/members - Crear nuevo miembro
-router.post('/', requireCaptain, (req, res) => {
+router.post('/', requireCaptain, async (req, res) => {
   try {
     const { username, password, full_name, role } = req.body ?? {}
 
@@ -29,20 +28,18 @@ router.post('/', requireCaptain, (req, res) => {
     }
 
     const db = getDatabase()
-    const result = db
-      .prepare(
-        `
+    const result = await db.execute({
+      sql: `
       INSERT INTO members (username, password, full_name, role, has_password)
       VALUES (?, ?, ?, ?, 1)
-    `
-      )
-      .run(username, hashPassword(password), full_name || username, role)
-    db.close()
+    `,
+      args: [username, hashPassword(password), full_name || username, role],
+    })
 
     res.status(201).json({
       success: true,
       data: {
-        id: result.lastInsertRowid,
+        id: Number(result.lastInsertRowid),
         username,
         full_name: full_name || username,
         role,
@@ -54,7 +51,7 @@ router.post('/', requireCaptain, (req, res) => {
 })
 
 // PUT /api/members/:id - Actualizar miembro
-router.put('/:id', requireCaptain, (req, res) => {
+router.put('/:id', requireCaptain, async (req, res) => {
   try {
     const { id } = req.params
     const { username, full_name, role, password } = req.body ?? {}
@@ -62,25 +59,27 @@ router.put('/:id', requireCaptain, (req, res) => {
     const db = getDatabase()
 
     if (password) {
-      db.prepare(
-        `
+      await db.execute({
+        sql: `
         UPDATE members
         SET username = ?, full_name = ?, role = ?, password = ?, has_password = 1
         WHERE id = ?
-      `
-      ).run(username, full_name, role, hashPassword(password), id)
+      `,
+        args: [username, full_name, role, hashPassword(password), id],
+      })
     } else {
-      db.prepare(
-        `
+      await db.execute({
+        sql: `
         UPDATE members
         SET username = ?, full_name = ?, role = ?
         WHERE id = ?
-      `
-      ).run(username, full_name, role, id)
+      `,
+        args: [username, full_name, role, id],
+      })
     }
 
-    const updated = db.prepare('SELECT id, username, full_name, role FROM members WHERE id = ?').get(id)
-    db.close()
+    const updated = (await db.execute({ sql: 'SELECT id, username, full_name, role FROM members WHERE id = ?', args: [id] }))
+      .rows[0]
 
     res.json({ success: true, data: updated })
   } catch (error: any) {
@@ -89,15 +88,14 @@ router.put('/:id', requireCaptain, (req, res) => {
 })
 
 // DELETE /api/members/:id - Eliminar miembro
-router.delete('/:id', requireCaptain, (req, res) => {
+router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const { id } = req.params
 
     const db = getDatabase()
     // Las sesiones tienen FK a members: hay que borrarlas antes que la cuenta.
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id)
-    db.prepare('DELETE FROM members WHERE id = ?').run(id)
-    db.close()
+    await db.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [id] })
+    await db.execute({ sql: 'DELETE FROM members WHERE id = ?', args: [id] })
 
     res.json({ success: true, message: 'Member deleted' })
   } catch (error: any) {

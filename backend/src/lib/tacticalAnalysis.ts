@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import type { ParsedMatch } from './battleReportParser'
 
 export interface PressureBand {
@@ -69,10 +69,10 @@ function bandFor(pressure: number): PressureBand | null {
   return PRESSURE_BANDS.find((b) => pressure >= b.min && pressure <= b.max) ?? null
 }
 
-export function computeTacticalAnalysis(db: Database.Database, clan: string): TacticalAnalysis {
-  const reports = db
-    .prepare(`SELECT matches_json FROM battle_reports WHERE clan = ?`)
-    .all(clan) as Array<{ matches_json: string }>
+export async function computeTacticalAnalysis(db: Client, clan: string): Promise<TacticalAnalysis> {
+  const reports = (
+    await db.execute({ sql: `SELECT matches_json FROM battle_reports WHERE clan = ?`, args: [clan] })
+  ).rows as unknown as Array<{ matches_json: string }>
 
   const byPressure = new Map<string, RecordAcc>()
   const byFormation = new Map<string, RecordAcc>()

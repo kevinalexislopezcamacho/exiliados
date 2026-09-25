@@ -141,15 +141,11 @@ Devuelve el ranking de **Rayo** y **Exiliados**, ordenado por puntos (`wins - lo
 }
 ```
 
-#### `GET /api/rankings/stream`
-Server-Sent Events. Al conectar manda el estado actual (`event: rankings`) y luego un nuevo `event: rankings` cada vez que cualquier capitán registra un resultado — así el ranking se actualiza en tiempo real para todos los capitanes que lo tengan abierto, sin recargar.
-
-#### `POST /api/rankings/:clanMemberId/result`
-Body: `{ "result": "win" | "loss" }` → inserta el resultado, recalcula el ranking y lo transmite por el stream a todos los clientes conectados.
+El frontend actualiza este ranking con polling (cada 10s) en vez de tiempo real por SSE, para poder correr en funciones serverless (Vercel).
 
 ## Base de datos
 
-SQLite vía `better-sqlite3`, archivo `backend/data.db` (se ignora en git). Tablas:
+Turso (libSQL, compatible con SQLite) vía `@libsql/client`, usando las variables de entorno `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN`. Tablas:
 
 - `members` — cuentas de login (username, password hasheado con SHA-256, role, full_name, **clan**)
 - `sessions` — tokens de sesión con expiración

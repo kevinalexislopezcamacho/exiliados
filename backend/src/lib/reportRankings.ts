@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import { getCountryFlag, slugifyUsername } from '../db'
 import { computeMetaCompliance, type MetaCompliance } from './metaTracking'
 import { computeSquadRankings } from './squadRankings'
@@ -42,10 +42,10 @@ interface ManagerAccumulator {
 // todos los reportes de batalla (.xlsx) subidos para cada clan, y se cruza
 // con el armado (valor/eficiencia) y la meta para armar un puntaje
 // compuesto — el mismo criterio que usa el Ranking General.
-export function computeReportRankings(db: Database.Database): RankingsData {
-  const reportRows = db
-    .prepare(`SELECT clan, summary_json FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`)
-    .all() as Array<{ clan: RankedClan; summary_json: string }>
+export async function computeReportRankings(db: Client): Promise<RankingsData> {
+  const reportRows = (
+    await db.execute(`SELECT clan, summary_json FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`)
+  ).rows as unknown as Array<{ clan: RankedClan; summary_json: string }>
 
   const totals = new Map<string, ManagerAccumulator>()
 
@@ -66,20 +66,20 @@ export function computeReportRankings(db: Database.Database): RankingsData {
     }
   }
 
-  const flagRows = db
-    .prepare(`SELECT name, clan, country_code as countryCode FROM clan_members WHERE clan IN ('rayo', 'exiliados')`)
-    .all() as Array<{ name: string; clan: RankedClan; countryCode: string }>
+  const flagRows = (
+    await db.execute(`SELECT name, clan, country_code as countryCode FROM clan_members WHERE clan IN ('rayo', 'exiliados')`)
+  ).rows as unknown as Array<{ name: string; clan: RankedClan; countryCode: string }>
   const flagByKey = new Map<string, string>()
   for (const row of flagRows) {
     flagByKey.set(`${row.clan}::${slugifyUsername(row.name)}`, row.countryCode ? getCountryFlag(row.countryCode) : '')
   }
 
   const metaByClan: Record<RankedClan, Map<string, MetaCompliance>> = {
-    rayo: computeMetaCompliance(db, 'rayo'),
-    exiliados: computeMetaCompliance(db, 'exiliados'),
+    rayo: await computeMetaCompliance(db, 'rayo'),
+    exiliados: await computeMetaCompliance(db, 'exiliados'),
   }
 
-  const armadoByClan = computeSquadRankings(db)
+  const armadoByClan = await computeSquadRankings(db)
   const armadoByKey: Record<RankedClan, Map<string, { valorActual: number | null; eficiencia: number | null }>> = {
     rayo: new Map(),
     exiliados: new Map(),

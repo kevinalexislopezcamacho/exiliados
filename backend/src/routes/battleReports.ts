@@ -4,11 +4,9 @@ import { getDatabase } from '../db'
 import { requireAuth, requireCaptain, requireReportAccess } from '../middleware/auth'
 import { parseBattleWorkbook } from '../lib/battleReportParser'
 import { summarizeBattle } from '../lib/battleStats'
-import { computeReportRankings } from '../lib/reportRankings'
 import { computeMemberStats } from '../lib/memberStats'
 import { computeTacticalAnalysis } from '../lib/tacticalAnalysis'
 import { mergeSubmissionsIntoMatches, type MatchSubmissionRow } from '../lib/matchSubmissions'
-import { broadcast } from '../sse'
 
 const router = Router()
 
@@ -142,7 +140,7 @@ function parseSubmissionBody(body: any) {
 // GET /api/battle-reports/me - Estadísticas reales del usuario logueado,
 // sacadas de los reportes de su clan (cualquier miembro autenticado).
 // Va antes de "/:id" para que Express no la confunda con un id.
-router.get('/me', requireAuth, (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   try {
     if (!req.user?.full_name || !req.user?.clan) {
       return res.json({
@@ -151,8 +149,7 @@ router.get('/me', requireAuth, (req, res) => {
       })
     }
     const db = getDatabase()
-    const stats = computeMemberStats(db, req.user.full_name, req.user.clan)
-    db.close()
+    const stats = await computeMemberStats(db, req.user.full_name, req.user.clan)
     res.json({ success: true, data: stats })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo tus estadísticas' })
@@ -164,15 +161,14 @@ router.get('/me', requireAuth, (req, res) => {
 // cualquier clan; todos los demás, incluidos otros capitanes, solo el suyo y
 // solo si el acceso está habilitado).
 // Va antes de "/:id" para que Express no la confunda con un id.
-router.get('/tactics', requireReportAccess, (req, res) => {
+router.get('/tactics', requireReportAccess, async (req, res) => {
   try {
     const clan = req.user?.username === 'chicolinas' ? String(req.query.clan ?? '') : req.user?.clan ?? ''
     if (!clan) {
       return res.status(400).json({ success: false, error: 'Debes indicar el clan (?clan=rayo|exiliados)' })
     }
     const db = getDatabase()
-    const data = computeTacticalAnalysis(db, clan)
-    db.close()
+    const data = await computeTacticalAnalysis(db, clan)
     res.json({ success: true, data })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error calculando el análisis táctico' })
@@ -182,15 +178,17 @@ router.get('/tactics', requireReportAccess, (req, res) => {
 // GET /api/battle-reports - Lista de reportes de batalla (chicolinas ve
 // todos; todos los demás, incluidos otros capitanes, solo los de su propio
 // clan, y solo si tienen acceso habilitado)
-router.get('/', requireReportAccess, (req, res) => {
+router.get('/', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
     const rows = (
       req.user?.username === 'chicolinas'
-        ? db.prepare('SELECT * FROM battle_reports ORDER BY created_at DESC').all()
-        : db.prepare('SELECT * FROM battle_reports WHERE clan = ? ORDER BY created_at DESC').all(req.user?.clan ?? '')
-    ) as BattleReportRow[]
-    db.close()
+        ? await db.execute('SELECT * FROM battle_reports ORDER BY created_at DESC')
+        : await db.execute({
+            sql: 'SELECT * FROM battle_reports WHERE clan = ? ORDER BY created_at DESC',
+            args: [req.user?.clan ?? ''],
+          })
+    ).rows as unknown as BattleReportRow[]
     res.json({ success: true, data: rows.map(toListItem) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo los reportes de batalla' })
@@ -201,7 +199,7 @@ router.get('/', requireReportAccess, (req, res) => {
 // todavía) para que los integrantes vayan reportando sus partidos a mano
 // mientras se junta el Excel oficial (solo capitanes).
 // Va antes de "/:id" para que Express no la confunda con un id.
-router.post('/draft', requireCaptain, (req, res) => {
+router.post('/draft', requireCaptain, async (req, res) => {
   try {
     const { clan, title, opponent } = req.body ?? {}
     if (!clan || typeof clan !== 'string') {
@@ -213,23 +211,23 @@ router.post('/draft', requireCaptain, (req, res) => {
 
     const db = getDatabase()
     const emptySummary = summarizeBattle([])
-    const result = db
-      .prepare(
-        `
+    const result = await db.execute({
+      sql: `
       INSERT INTO battle_reports (clan, title, opponent, file_name, sheet_name, uploaded_by, summary_json, matches_json, slots_json, status)
       VALUES (?, ?, ?, '', '', ?, ?, '[]', '{}', 'draft')
-    `
-      )
-      .run(
+    `,
+      args: [
         clan,
         title.trim(),
         (opponent && String(opponent).trim()) || '',
         req.user?.full_name ?? req.user?.username ?? null,
-        JSON.stringify(emptySummary)
-      )
+        JSON.stringify(emptySummary),
+      ],
+    })
 
-    const row = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(result.lastInsertRowid) as BattleReportRow
-    db.close()
+    const row = (
+      await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [Number(result.lastInsertRowid)] })
+    ).rows[0] as unknown as BattleReportRow
 
     res.status(201).json({ success: true, data: { ...toListItem(row), matches: [] } })
   } catch (error) {
@@ -240,30 +238,29 @@ router.post('/draft', requireCaptain, (req, res) => {
 // GET /api/battle-reports/:id - Detalle completo (chicolinas siempre; todos
 // los demás, incluidos otros capitanes, solo si tienen acceso Y el reporte
 // es de su propio clan)
-router.get('/:id', requireReportAccess, (req, res) => {
+router.get('/:id', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const row = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(req.params.id) as
-      | BattleReportRow
-      | undefined
+    const row = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow | undefined
 
     if (!row) {
-      db.close()
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
     }
     if (req.user?.username !== 'chicolinas' && row.clan !== req.user?.clan) {
-      db.close()
       return res.status(403).json({ success: false, error: 'Este reporte no es de tu clan' })
     }
 
     let submissions: ReturnType<typeof toSubmissionItem>[] | undefined
     if (row.status === 'draft') {
-      const subRows = db
-        .prepare('SELECT * FROM battle_match_submissions WHERE report_id = ? ORDER BY created_at ASC')
-        .all(row.id) as MatchSubmissionRow[]
+      const subRows = (
+        await db.execute({
+          sql: 'SELECT * FROM battle_match_submissions WHERE report_id = ? ORDER BY created_at ASC',
+          args: [row.id],
+        })
+      ).rows as unknown as MatchSubmissionRow[]
       submissions = subRows.map(toSubmissionItem)
     }
-    db.close()
 
     res.json({
       success: true,
@@ -280,50 +277,42 @@ router.get('/:id', requireReportAccess, (req, res) => {
 
 // POST /api/battle-reports/:id/submissions - Reporta un partido propio a
 // mano en una batalla que sigue 'draft' (cualquiera con acceso a reportes).
-router.post('/:id/submissions', requireReportAccess, (req, res) => {
+router.post('/:id/submissions', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const report = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(req.params.id) as
-      | BattleReportRow
-      | undefined
+    const report = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow | undefined
 
     if (!report) {
-      db.close()
       return res.status(404).json({ success: false, error: 'Batalla no encontrada' })
     }
     if (req.user?.username !== 'chicolinas' && report.clan !== req.user?.clan) {
-      db.close()
       return res.status(403).json({ success: false, error: 'Esta batalla no es de tu clan' })
     }
     if (report.status !== 'draft') {
-      db.close()
       return res.status(400).json({ success: false, error: 'Esta batalla ya se cerró con el Excel oficial' })
     }
     if (!req.user?.full_name) {
-      db.close()
       return res.status(400).json({ success: false, error: 'Tu cuenta no tiene un nombre completo configurado' })
     }
 
     const parsed = parseSubmissionBody(req.body)
     if (!parsed) {
-      db.close()
       return res.status(400).json({
         success: false,
         error: 'La condición debe ser Local o Visita, y el estilo/líneas (si los pones) deben ser una opción válida',
       })
     }
 
-    const result = db
-      .prepare(
-        `
+    const result = await db.execute({
+      sql: `
       INSERT INTO battle_match_submissions
         (report_id, member_id, manager, jornada, condicion, rival, gol_local, gol_visita, tiros_local, tiros_visita,
          posesion_local, posesion_visita, presion, tactica_nuestra, tactica_rival, estilo_nuestro, estilo_rival,
          estilo_pct, velocidad, defensas, medios, delanteros, campus, conclusiones, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `
-      )
-      .run(
+    `,
+      args: [
         report.id,
         req.user.id,
         req.user.full_name,
@@ -347,11 +336,16 @@ router.post('/:id/submissions', requireReportAccess, (req, res) => {
         parsed.medios,
         parsed.delanteros,
         parsed.campus,
-        parsed.conclusiones
-      )
+        parsed.conclusiones,
+      ],
+    })
 
-    const row = db.prepare('SELECT * FROM battle_match_submissions WHERE id = ?').get(result.lastInsertRowid) as MatchSubmissionRow
-    db.close()
+    const row = (
+      await db.execute({
+        sql: 'SELECT * FROM battle_match_submissions WHERE id = ?',
+        args: [Number(result.lastInsertRowid)],
+      })
+    ).rows[0] as unknown as MatchSubmissionRow
 
     res.status(201).json({ success: true, data: toSubmissionItem(row) })
   } catch (error) {
@@ -361,43 +355,40 @@ router.post('/:id/submissions', requireReportAccess, (req, res) => {
 
 // PUT /api/battle-reports/:id/submissions/:subId - Edita un partido propio
 // (o de cualquiera del clan, si es capitán/chicolinas), mientras siga 'draft'.
-router.put('/:id/submissions/:subId', requireReportAccess, (req, res) => {
+router.put('/:id/submissions/:subId', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const report = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(req.params.id) as
-      | BattleReportRow
-      | undefined
-    const submission = db.prepare('SELECT * FROM battle_match_submissions WHERE id = ? AND report_id = ?').get(
-      req.params.subId,
-      req.params.id
-    ) as MatchSubmissionRow | undefined
+    const report = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow | undefined
+    const submission = (
+      await db.execute({
+        sql: 'SELECT * FROM battle_match_submissions WHERE id = ? AND report_id = ?',
+        args: [req.params.subId, req.params.id],
+      })
+    ).rows[0] as unknown as MatchSubmissionRow | undefined
 
     if (!report || !submission) {
-      db.close()
       return res.status(404).json({ success: false, error: 'No se encontró ese partido' })
     }
     const isOwner = submission.member_id === req.user?.id
     const canManageOthers = req.user?.username === 'chicolinas' || (req.user?.role === 'captain' && report.clan === req.user.clan)
     if (!isOwner && !canManageOthers) {
-      db.close()
       return res.status(403).json({ success: false, error: 'Ese partido no es tuyo' })
     }
     if (report.status !== 'draft') {
-      db.close()
       return res.status(400).json({ success: false, error: 'Esta batalla ya se cerró con el Excel oficial' })
     }
 
     const parsed = parseSubmissionBody(req.body)
     if (!parsed) {
-      db.close()
       return res.status(400).json({
         success: false,
         error: 'La condición debe ser Local o Visita, y el estilo/líneas (si los pones) deben ser una opción válida',
       })
     }
 
-    db.prepare(
-      `
+    await db.execute({
+      sql: `
       UPDATE battle_match_submissions SET
         jornada = ?, condicion = ?, rival = ?, gol_local = ?, gol_visita = ?,
         tiros_local = ?, tiros_visita = ?, posesion_local = ?, posesion_visita = ?,
@@ -405,34 +396,36 @@ router.put('/:id/submissions/:subId', requireReportAccess, (req, res) => {
         estilo_pct = ?, velocidad = ?, defensas = ?, medios = ?, delanteros = ?, campus = ?,
         conclusiones = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `
-    ).run(
-      parsed.jornada,
-      parsed.condicion,
-      parsed.rival,
-      parsed.golLocal,
-      parsed.golVisita,
-      parsed.tirosLocal,
-      parsed.tirosVisita,
-      parsed.posesionLocal,
-      parsed.posesionVisita,
-      parsed.presion,
-      parsed.tacticaNuestra,
-      parsed.tacticaRival,
-      parsed.estiloNuestro,
-      parsed.estiloRival,
-      parsed.estiloPct,
-      parsed.velocidad,
-      parsed.defensas,
-      parsed.medios,
-      parsed.delanteros,
-      parsed.campus,
-      parsed.conclusiones,
-      submission.id
-    )
+    `,
+      args: [
+        parsed.jornada,
+        parsed.condicion,
+        parsed.rival,
+        parsed.golLocal,
+        parsed.golVisita,
+        parsed.tirosLocal,
+        parsed.tirosVisita,
+        parsed.posesionLocal,
+        parsed.posesionVisita,
+        parsed.presion,
+        parsed.tacticaNuestra,
+        parsed.tacticaRival,
+        parsed.estiloNuestro,
+        parsed.estiloRival,
+        parsed.estiloPct,
+        parsed.velocidad,
+        parsed.defensas,
+        parsed.medios,
+        parsed.delanteros,
+        parsed.campus,
+        parsed.conclusiones,
+        submission.id,
+      ],
+    })
 
-    const row = db.prepare('SELECT * FROM battle_match_submissions WHERE id = ?').get(submission.id) as MatchSubmissionRow
-    db.close()
+    const row = (
+      await db.execute({ sql: 'SELECT * FROM battle_match_submissions WHERE id = ?', args: [submission.id] })
+    ).rows[0] as unknown as MatchSubmissionRow
     res.json({ success: true, data: toSubmissionItem(row) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error actualizando tu partido' })
@@ -441,34 +434,31 @@ router.put('/:id/submissions/:subId', requireReportAccess, (req, res) => {
 
 // DELETE /api/battle-reports/:id/submissions/:subId - Borra un partido propio
 // (o de cualquiera del clan, si es capitán/chicolinas), mientras siga 'draft'.
-router.delete('/:id/submissions/:subId', requireReportAccess, (req, res) => {
+router.delete('/:id/submissions/:subId', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const report = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(req.params.id) as
-      | BattleReportRow
-      | undefined
-    const submission = db.prepare('SELECT * FROM battle_match_submissions WHERE id = ? AND report_id = ?').get(
-      req.params.subId,
-      req.params.id
-    ) as MatchSubmissionRow | undefined
+    const report = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow | undefined
+    const submission = (
+      await db.execute({
+        sql: 'SELECT * FROM battle_match_submissions WHERE id = ? AND report_id = ?',
+        args: [req.params.subId, req.params.id],
+      })
+    ).rows[0] as unknown as MatchSubmissionRow | undefined
 
     if (!report || !submission) {
-      db.close()
       return res.status(404).json({ success: false, error: 'No se encontró ese partido' })
     }
     const isOwner = submission.member_id === req.user?.id
     const canManageOthers = req.user?.username === 'chicolinas' || (req.user?.role === 'captain' && report.clan === req.user.clan)
     if (!isOwner && !canManageOthers) {
-      db.close()
       return res.status(403).json({ success: false, error: 'Ese partido no es tuyo' })
     }
     if (report.status !== 'draft') {
-      db.close()
       return res.status(400).json({ success: false, error: 'Esta batalla ya se cerró con el Excel oficial' })
     }
 
-    db.prepare('DELETE FROM battle_match_submissions WHERE id = ?').run(submission.id)
-    db.close()
+    await db.execute({ sql: 'DELETE FROM battle_match_submissions WHERE id = ?', args: [submission.id] })
     res.json({ success: true })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error borrando tu partido' })
@@ -503,62 +493,57 @@ router.post('/', requireCaptain, (req, res) => {
       // fila en vez de crear una nueva, fusionando los partidos manuales que
       // el Excel no traiga.
       if (reportId) {
-        const draft = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(reportId) as BattleReportRow | undefined
+        const draft = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [reportId] }))
+          .rows[0] as unknown as BattleReportRow | undefined
         if (!draft) {
-          db.close()
           return res.status(404).json({ success: false, error: 'La batalla en progreso ya no existe' })
         }
         if (draft.clan !== clan) {
-          db.close()
           return res.status(400).json({ success: false, error: 'Esa batalla en progreso es de otro clan' })
         }
         if (draft.status !== 'draft') {
-          db.close()
           return res.status(400).json({ success: false, error: 'Esa batalla ya tiene un Excel oficial cargado' })
         }
 
-        const subRows = db
-          .prepare('SELECT * FROM battle_match_submissions WHERE report_id = ?')
-          .all(draft.id) as MatchSubmissionRow[]
+        const subRows = (
+          await db.execute({ sql: 'SELECT * FROM battle_match_submissions WHERE report_id = ?', args: [draft.id] })
+        ).rows as unknown as MatchSubmissionRow[]
         const finalMatches = mergeSubmissionsIntoMatches(parsed.matches, subRows)
         const summary = summarizeBattle(finalMatches)
 
-        db.prepare(
-          `
+        await db.execute({
+          sql: `
           UPDATE battle_reports SET
             title = ?, opponent = ?, file_name = ?, sheet_name = ?, uploaded_by = ?,
             summary_json = ?, matches_json = ?, slots_json = ?, status = 'final'
           WHERE id = ?
-        `
-        ).run(
-          (title && String(title).trim()) || draft.title,
-          parsed.rivalLabel || draft.opponent,
-          req.file.originalname,
-          parsed.sheetName,
-          req.user?.full_name ?? req.user?.username ?? null,
-          JSON.stringify(summary),
-          JSON.stringify(finalMatches),
-          JSON.stringify({ managerSlots: parsed.managerSlots, rivalSlots: parsed.rivalSlots }),
-          draft.id
-        )
+        `,
+          args: [
+            (title && String(title).trim()) || draft.title,
+            parsed.rivalLabel || draft.opponent,
+            req.file.originalname,
+            parsed.sheetName,
+            req.user?.full_name ?? req.user?.username ?? null,
+            JSON.stringify(summary),
+            JSON.stringify(finalMatches),
+            JSON.stringify({ managerSlots: parsed.managerSlots, rivalSlots: parsed.rivalSlots }),
+            draft.id,
+          ],
+        })
 
-        const row = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(draft.id) as BattleReportRow
-        const rankings = computeReportRankings(db)
-        db.close()
+        const row = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [draft.id] }))
+          .rows[0] as unknown as BattleReportRow
 
-        broadcast('rankings', rankings)
         return res.status(200).json({ success: true, data: { ...toListItem(row), matches: finalMatches } })
       }
 
       const summary = summarizeBattle(parsed.matches)
-      const result = db
-        .prepare(
-          `
+      const result = await db.execute({
+        sql: `
         INSERT INTO battle_reports (clan, title, opponent, file_name, sheet_name, uploaded_by, summary_json, matches_json, slots_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-        )
-        .run(
+      `,
+        args: [
           clan,
           (title && String(title).trim()) || parsed.sheetName,
           parsed.rivalLabel,
@@ -567,14 +552,14 @@ router.post('/', requireCaptain, (req, res) => {
           req.user?.full_name ?? req.user?.username ?? null,
           JSON.stringify(summary),
           JSON.stringify(parsed.matches),
-          JSON.stringify({ managerSlots: parsed.managerSlots, rivalSlots: parsed.rivalSlots })
-        )
+          JSON.stringify({ managerSlots: parsed.managerSlots, rivalSlots: parsed.rivalSlots }),
+        ],
+      })
 
-      const row = db.prepare('SELECT * FROM battle_reports WHERE id = ?').get(result.lastInsertRowid) as BattleReportRow
-      const rankings = computeReportRankings(db)
-      db.close()
+      const row = (
+        await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [Number(result.lastInsertRowid)] })
+      ).rows[0] as unknown as BattleReportRow
 
-      broadcast('rankings', rankings)
       res.status(201).json({ success: true, data: { ...toListItem(row), matches: parsed.matches } })
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message || 'No se pudo analizar el archivo' })
@@ -583,20 +568,15 @@ router.post('/', requireCaptain, (req, res) => {
 })
 
 // DELETE /api/battle-reports/:id - Elimina un reporte (solo capitanes)
-router.delete('/:id', requireCaptain, (req, res) => {
+router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
-    const result = db.prepare('DELETE FROM battle_reports WHERE id = ?').run(req.params.id)
+    const result = await db.execute({ sql: 'DELETE FROM battle_reports WHERE id = ?', args: [req.params.id] })
 
-    if (result.changes === 0) {
-      db.close()
+    if (result.rowsAffected === 0) {
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
     }
 
-    const rankings = computeReportRankings(db)
-    db.close()
-
-    broadcast('rankings', rankings)
     res.json({ success: true })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error eliminando el reporte' })

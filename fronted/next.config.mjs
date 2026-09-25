@@ -15,12 +15,6 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
   },
-  // Next.js comprime (gzip) todo lo que pasa por su servidor, incluyendo el
-  // proxy de /api/*. Para respuestas normales no importa, pero bufferea los
-  // eventos del stream SSE de /api/rankings/stream indefinidamente porque
-  // cada mensaje es muy chico para llenar el buffer de gzip — el navegador
-  // (a diferencia de curl) siempre pide gzip, así que nunca recibía nada.
-  compress: false,
   typescript: {
     ignoreBuildErrors: true,
   },

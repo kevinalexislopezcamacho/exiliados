@@ -27,13 +27,11 @@ function toItem(row: GameEventRow) {
 }
 
 // GET /api/events - Calendario de eventos del juego (cualquier usuario logueado)
-router.get('/', requireAuth, (_req, res) => {
+router.get('/', requireAuth, async (_req, res) => {
   try {
     const db = getDatabase()
-    const rows = db
-      .prepare('SELECT * FROM game_events ORDER BY month_label DESC, sort_order ASC')
-      .all() as GameEventRow[]
-    db.close()
+    const rows = (await db.execute('SELECT * FROM game_events ORDER BY month_label DESC, sort_order ASC'))
+      .rows as unknown as GameEventRow[]
     res.json({ success: true, data: rows.map(toItem) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo los eventos' })
@@ -41,7 +39,7 @@ router.get('/', requireAuth, (_req, res) => {
 })
 
 // POST /api/events - Crear un evento (solo capitanes)
-router.post('/', requireCaptain, (req, res) => {
+router.post('/', requireCaptain, async (req, res) => {
   try {
     const { monthLabel, dateLabel, title, description, color } = req.body ?? {}
     if (!monthLabel || !dateLabel || !title) {
@@ -49,19 +47,21 @@ router.post('/', requireCaptain, (req, res) => {
     }
 
     const db = getDatabase()
-    const maxOrder = db
-      .prepare('SELECT COALESCE(MAX(sort_order), -1) as maxOrder FROM game_events WHERE month_label = ?')
-      .get(monthLabel) as { maxOrder: number }
+    const maxOrder = (
+      await db.execute({
+        sql: 'SELECT COALESCE(MAX(sort_order), -1) as maxOrder FROM game_events WHERE month_label = ?',
+        args: [monthLabel],
+      })
+    ).rows[0] as unknown as { maxOrder: number }
 
-    const result = db
-      .prepare(
-        `INSERT INTO game_events (month_label, date_label, title, description, color, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(monthLabel, dateLabel, title, description || '', color || 'primary', maxOrder.maxOrder + 1)
+    const result = await db.execute({
+      sql: `INSERT INTO game_events (month_label, date_label, title, description, color, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [monthLabel, dateLabel, title, description || '', color || 'primary', maxOrder.maxOrder + 1],
+    })
 
-    const row = db.prepare('SELECT * FROM game_events WHERE id = ?').get(result.lastInsertRowid) as GameEventRow
-    db.close()
+    const row = (await db.execute({ sql: 'SELECT * FROM game_events WHERE id = ?', args: [Number(result.lastInsertRowid)] }))
+      .rows[0] as unknown as GameEventRow
 
     res.status(201).json({ success: true, data: toItem(row) })
   } catch (error: any) {
@@ -70,16 +70,17 @@ router.post('/', requireCaptain, (req, res) => {
 })
 
 // PUT /api/events/:id - Editar un evento (solo capitanes)
-router.put('/:id', requireCaptain, (req, res) => {
+router.put('/:id', requireCaptain, async (req, res) => {
   try {
     const { monthLabel, dateLabel, title, description, color } = req.body ?? {}
     const db = getDatabase()
-    db.prepare(
-      `UPDATE game_events SET month_label = ?, date_label = ?, title = ?, description = ?, color = ? WHERE id = ?`
-    ).run(monthLabel, dateLabel, title, description || '', color || 'primary', req.params.id)
+    await db.execute({
+      sql: `UPDATE game_events SET month_label = ?, date_label = ?, title = ?, description = ?, color = ? WHERE id = ?`,
+      args: [monthLabel, dateLabel, title, description || '', color || 'primary', req.params.id],
+    })
 
-    const row = db.prepare('SELECT * FROM game_events WHERE id = ?').get(req.params.id) as GameEventRow | undefined
-    db.close()
+    const row = (await db.execute({ sql: 'SELECT * FROM game_events WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as GameEventRow | undefined
 
     if (!row) {
       return res.status(404).json({ success: false, error: 'Evento no encontrado' })
@@ -91,13 +92,12 @@ router.put('/:id', requireCaptain, (req, res) => {
 })
 
 // DELETE /api/events/:id - Eliminar un evento (solo capitanes)
-router.delete('/:id', requireCaptain, (req, res) => {
+router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
-    const result = db.prepare('DELETE FROM game_events WHERE id = ?').run(req.params.id)
-    db.close()
+    const result = await db.execute({ sql: 'DELETE FROM game_events WHERE id = ?', args: [req.params.id] })
 
-    if (result.changes === 0) {
+    if (result.rowsAffected === 0) {
       return res.status(404).json({ success: false, error: 'Evento no encontrado' })
     }
     res.json({ success: true })

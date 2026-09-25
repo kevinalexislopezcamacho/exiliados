@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import type { ParsedMatch } from './battleReportParser'
 import { META_BY_SLOT } from './battleReportParser'
 import { slugifyUsername } from '../db'
@@ -60,10 +60,13 @@ function computeCombinedStandings(matches: ParsedMatch[]): Map<string, number> {
 // evalúa es un rival) define su meta objetivo (slot 1=meta1 ... slot 5=meta9),
 // y se compara contra la posición real que sacó en la tabla combinada de 10.
 // No depende del archivo de armado.
-export function computeMetaCompliance(db: Database.Database, clan: string): Map<string, MetaCompliance> {
-  const battleReports = db
-    .prepare(`SELECT matches_json, slots_json FROM battle_reports WHERE clan = ? ORDER BY created_at DESC`)
-    .all(clan) as Array<{ matches_json: string; slots_json: string }>
+export async function computeMetaCompliance(db: Client, clan: string): Promise<Map<string, MetaCompliance>> {
+  const battleReports = (
+    await db.execute({
+      sql: `SELECT matches_json, slots_json FROM battle_reports WHERE clan = ? ORDER BY created_at DESC`,
+      args: [clan],
+    })
+  ).rows as unknown as Array<{ matches_json: string; slots_json: string }>
 
   const result = new Map<string, MetaCompliance>()
 

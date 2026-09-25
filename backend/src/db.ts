@@ -1,10 +1,5 @@
-import Database from 'better-sqlite3'
-import path from 'path'
+import { createClient, type Client } from '@libsql/client'
 import crypto from 'crypto'
-
-// DB_PATH permite apuntar a un volumen persistente (ej. en Railway) en vez del
-// archivo local junto al código, que en un contenedor se pierde en cada deploy.
-const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.db')
 
 export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex')
@@ -14,16 +9,30 @@ export function verifyPassword(password: string, hash: string): boolean {
   return hashPassword(password) === hash
 }
 
-export function getDatabase(): Database.Database {
-  const db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
-  return db
+// Cliente de Turso (libSQL): a diferencia de better-sqlite3 no es un archivo
+// local, es una conexión de red sin estado por request, así que se crea una
+// sola vez y se reusa entre invocaciones (en Vercel, entre invocaciones
+// "calientes" de la misma función serverless).
+let client: Client | null = null
+
+export function getDatabase(): Client {
+  if (!client) {
+    client = createClient({
+      url: process.env.TURSO_DATABASE_URL!,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    })
+  }
+  return client
 }
 
-export function initializeDatabase() {
+interface ColumnInfo {
+  name: string
+}
+
+export async function initializeDatabase() {
   const db = getDatabase()
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -36,12 +45,12 @@ export function initializeDatabase() {
     )
   `)
 
-  const memberColumns = db.prepare(`PRAGMA table_info(members)`).all() as Array<{ name: string }>
+  const memberColumns = (await db.execute(`PRAGMA table_info(members)`)).rows as unknown as ColumnInfo[]
   if (!memberColumns.some((col) => col.name === 'has_password')) {
-    db.exec(`ALTER TABLE members ADD COLUMN has_password INTEGER NOT NULL DEFAULT 1`)
+    await db.execute(`ALTER TABLE members ADD COLUMN has_password INTEGER NOT NULL DEFAULT 1`)
   }
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -52,7 +61,7 @@ export function initializeDatabase() {
     )
   `)
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS warriors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -65,12 +74,12 @@ export function initializeDatabase() {
     )
   `)
 
-  const warriorColumns = db.prepare(`PRAGMA table_info(warriors)`).all() as Array<{ name: string }>
+  const warriorColumns = (await db.execute(`PRAGMA table_info(warriors)`)).rows as unknown as ColumnInfo[]
   if (!warriorColumns.some((col) => col.name === 'image_url')) {
-    db.exec(`ALTER TABLE warriors ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
+    await db.execute(`ALTER TABLE warriors ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
   }
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS stats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       value TEXT NOT NULL,
@@ -81,7 +90,7 @@ export function initializeDatabase() {
     )
   `)
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS clan_members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -92,15 +101,15 @@ export function initializeDatabase() {
     )
   `)
 
-  const clanMemberColumns = db.prepare(`PRAGMA table_info(clan_members)`).all() as Array<{ name: string }>
+  const clanMemberColumns = (await db.execute(`PRAGMA table_info(clan_members)`)).rows as unknown as ColumnInfo[]
   if (!clanMemberColumns.some((col) => col.name === 'title')) {
-    db.exec(`ALTER TABLE clan_members ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
+    await db.execute(`ALTER TABLE clan_members ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
   }
   if (!clanMemberColumns.some((col) => col.name === 'member_id')) {
-    db.exec(`ALTER TABLE clan_members ADD COLUMN member_id INTEGER REFERENCES members(id)`)
+    await db.execute(`ALTER TABLE clan_members ADD COLUMN member_id INTEGER REFERENCES members(id)`)
   }
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS battle_results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       clan_member_id INTEGER NOT NULL,
@@ -110,7 +119,7 @@ export function initializeDatabase() {
     )
   `)
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS battle_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       clan TEXT NOT NULL,
@@ -126,22 +135,22 @@ export function initializeDatabase() {
     )
   `)
 
-  const battleReportColumns = db.prepare(`PRAGMA table_info(battle_reports)`).all() as Array<{ name: string }>
+  const battleReportColumns = (await db.execute(`PRAGMA table_info(battle_reports)`)).rows as unknown as ColumnInfo[]
   if (!battleReportColumns.some((col) => col.name === 'slots_json')) {
-    db.exec(`ALTER TABLE battle_reports ADD COLUMN slots_json TEXT NOT NULL DEFAULT '{}'`)
+    await db.execute(`ALTER TABLE battle_reports ADD COLUMN slots_json TEXT NOT NULL DEFAULT '{}'`)
   }
   // 'draft' = batalla creada sin Excel todavía, mientras se van cargando
   // partidos a mano; 'final' = ya tiene el Excel oficial (todos los reportes
   // viejos, subidos siempre por Excel, quedan 'final' con este default).
   if (!battleReportColumns.some((col) => col.name === 'status')) {
-    db.exec(`ALTER TABLE battle_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'final'`)
+    await db.execute(`ALTER TABLE battle_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'final'`)
   }
 
   // Partidos que un integrante reporta a mano desde la página mientras una
   // batalla sigue en 'draft' (todavía no llega el Excel oficial). Al subir el
   // Excel de esa batalla, los que ya vienen ahí reemplazan a estos; los que
   // falten en el Excel se agregan como respaldo (ver matchSubmissions.ts).
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS battle_match_submissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       report_id INTEGER NOT NULL,
@@ -175,27 +184,28 @@ export function initializeDatabase() {
     )
   `)
 
-  const submissionColumns = db.prepare(`PRAGMA table_info(battle_match_submissions)`).all() as Array<{ name: string }>
-  const addSubmissionColumnIfMissing = (name: string, ddl: string) => {
+  const submissionColumns = (await db.execute(`PRAGMA table_info(battle_match_submissions)`))
+    .rows as unknown as ColumnInfo[]
+  const addSubmissionColumnIfMissing = async (name: string, ddl: string) => {
     if (!submissionColumns.some((col) => col.name === name)) {
-      db.exec(`ALTER TABLE battle_match_submissions ADD COLUMN ${ddl}`)
+      await db.execute(`ALTER TABLE battle_match_submissions ADD COLUMN ${ddl}`)
     }
   }
-  addSubmissionColumnIfMissing('presion', 'presion INTEGER')
-  addSubmissionColumnIfMissing('tactica_nuestra', "tactica_nuestra TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('tactica_rival', "tactica_rival TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('presion', 'presion INTEGER')
+  await addSubmissionColumnIfMissing('tactica_nuestra', "tactica_nuestra TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('tactica_rival', "tactica_rival TEXT NOT NULL DEFAULT ''")
   // 'estilo' (vieja, sin usar) queda huérfana si existe de una versión anterior;
   // el dato real de estilo ahora se separa en elección (nuestro/rival) y % (PORCENTAJES).
-  addSubmissionColumnIfMissing('estilo_nuestro', "estilo_nuestro TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('estilo_rival', "estilo_rival TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('estilo_pct', 'estilo_pct INTEGER')
-  addSubmissionColumnIfMissing('velocidad', 'velocidad INTEGER')
-  addSubmissionColumnIfMissing('defensas', "defensas TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('medios', "medios TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('delanteros', "delanteros TEXT NOT NULL DEFAULT ''")
-  addSubmissionColumnIfMissing('campus', 'campus INTEGER')
+  await addSubmissionColumnIfMissing('estilo_nuestro', "estilo_nuestro TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('estilo_rival', "estilo_rival TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('estilo_pct', 'estilo_pct INTEGER')
+  await addSubmissionColumnIfMissing('velocidad', 'velocidad INTEGER')
+  await addSubmissionColumnIfMissing('defensas', "defensas TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('medios', "medios TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('delanteros', "delanteros TEXT NOT NULL DEFAULT ''")
+  await addSubmissionColumnIfMissing('campus', 'campus INTEGER')
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS squad_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       clan TEXT NOT NULL,
@@ -210,7 +220,7 @@ export function initializeDatabase() {
     )
   `)
 
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS game_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       month_label TEXT NOT NULL,
@@ -226,7 +236,7 @@ export function initializeDatabase() {
   // Acceso a reportes por integrante (no por clan): solo chicolinas puede
   // prender/apagar el acceso de cada persona individualmente. La ausencia de
   // fila (o enabled=0) significa bloqueado.
-  db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS member_report_access (
       member_id INTEGER PRIMARY KEY,
       enabled INTEGER NOT NULL DEFAULT 0,
@@ -234,62 +244,81 @@ export function initializeDatabase() {
     )
   `)
 
-  const memberCount = db.prepare('SELECT COUNT(*) as count FROM members').get() as { count: number }
+  const memberCount = (await db.execute('SELECT COUNT(*) as count FROM members')).rows[0] as unknown as {
+    count: number
+  }
   if (memberCount.count === 0) {
-    const insertMember = db.prepare(`
-      INSERT INTO members (username, password, role, full_name, clan)
-      VALUES (?, ?, ?, ?, ?)
-    `)
+    const insertMember = (username: string, password: string, role: string, fullName: string, clan: string) =>
+      db.execute({
+        sql: `INSERT INTO members (username, password, role, full_name, clan) VALUES (?, ?, ?, ?, ?)`,
+        args: [username, password, role, fullName, clan],
+      })
 
-    insertMember.run('rodo', hashPassword('exiliados123'), 'member', 'Rodo', 'rayo')
-    insertMember.run('rojas', hashPassword('exiliados123'), 'member', 'Rojas', 'rayo')
+    await insertMember('rodo', hashPassword('exiliados123'), 'member', 'Rodo', 'rayo')
+    await insertMember('rojas', hashPassword('exiliados123'), 'member', 'Rojas', 'rayo')
 
-    insertMember.run('exi', hashPassword('capis123'), 'captain', 'Exi Suaro Perez', 'exiliados')
-    insertMember.run('chicolinas', hashPassword('capis123'), 'captain', 'Chicolinas', 'exiliados')
-    insertMember.run('tomas', hashPassword('capis123'), 'captain', 'Tomás', 'exiliados')
-    insertMember.run('cesar', hashPassword('capis123'), 'captain', 'Cesar', 'exiliados')
-    insertMember.run('pepe', hashPassword('capis123'), 'captain', 'Pepe', 'exiliados')
+    await insertMember('exi', hashPassword('capis123'), 'captain', 'Exi Suaro Perez', 'exiliados')
+    await insertMember('chicolinas', hashPassword('capis123'), 'captain', 'Chicolinas', 'exiliados')
+    await insertMember('tomas', hashPassword('capis123'), 'captain', 'Tomás', 'exiliados')
+    await insertMember('cesar', hashPassword('capis123'), 'captain', 'Cesar', 'exiliados')
+    await insertMember('pepe', hashPassword('capis123'), 'captain', 'Pepe', 'exiliados')
 
     console.log('Miembros por defecto insertados')
   }
 
-  const warriorCount = db.prepare('SELECT COUNT(*) as count FROM warriors').get() as { count: number }
+  const warriorCount = (await db.execute('SELECT COUNT(*) as count FROM warriors')).rows[0] as unknown as {
+    count: number
+  }
   if (warriorCount.count === 0) {
-    const insertWarrior = db.prepare(`
-      INSERT INTO warriors (name, role, rank, nationality, country_code, initial)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
+    const insertWarrior = (
+      name: string,
+      role: string,
+      rank: string,
+      nationality: string,
+      countryCode: string,
+      initial: string
+    ) =>
+      db.execute({
+        sql: `INSERT INTO warriors (name, role, rank, nationality, country_code, initial) VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [name, role, rank, nationality, countryCode, initial],
+      })
 
-    insertWarrior.run('Exi Suaro Perez', 'LÍDER', 'Campeón BHP', 'México', 'mx', 'E')
-    insertWarrior.run('Chicolinas', 'CAPITÁN', 'Campeón BHP', 'México', 'mx', 'C')
-    insertWarrior.run('Tomás', 'CAPITÁN', 'Campeón BHP', 'Argentina', 'ar', 'T')
-    insertWarrior.run('Cesar', 'CAPITÁN', 'Campeón MH', 'Colombia', 'co', 'C')
-    insertWarrior.run('Pepe', 'CAPITÁN', 'Campeón', 'México', 'mx', 'P')
+    await insertWarrior('Exi Suaro Perez', 'LÍDER', 'Campeón BHP', 'México', 'mx', 'E')
+    await insertWarrior('Chicolinas', 'CAPITÁN', 'Campeón BHP', 'México', 'mx', 'C')
+    await insertWarrior('Tomás', 'CAPITÁN', 'Campeón BHP', 'Argentina', 'ar', 'T')
+    await insertWarrior('Cesar', 'CAPITÁN', 'Campeón MH', 'Colombia', 'co', 'C')
+    await insertWarrior('Pepe', 'CAPITÁN', 'Campeón', 'México', 'mx', 'P')
 
     console.log('Guerreros por defecto insertados')
   }
 
-  const statsCount = db.prepare('SELECT COUNT(*) as count FROM stats').get() as { count: number }
+  const statsCount = (await db.execute('SELECT COUNT(*) as count FROM stats')).rows[0] as unknown as {
+    count: number
+  }
   if (statsCount.count === 0) {
-    const insertStat = db.prepare(`
-      INSERT INTO stats (value, label, icon, delay, sort_order)
-      VALUES (?, ?, ?, ?, ?)
-    `)
+    const insertStat = (value: string, label: string, icon: string, delay: number, sortOrder: number) =>
+      db.execute({
+        sql: `INSERT INTO stats (value, label, icon, delay, sort_order) VALUES (?, ?, ?, ?, ?)`,
+        args: [value, label, icon, delay, sortOrder],
+      })
 
-    insertStat.run('150+', 'Victorias', 'Trophy', 0, 0)
-    insertStat.run('25', 'Guerreros', 'Users', 0.1, 1)
-    insertStat.run('98%', 'Precisión', 'Target', 0.2, 2)
-    insertStat.run('TOP 10', 'Ranking', 'Flame', 0.3, 3)
+    await insertStat('150+', 'Victorias', 'Trophy', 0, 0)
+    await insertStat('25', 'Guerreros', 'Users', 0.1, 1)
+    await insertStat('98%', 'Precisión', 'Target', 0.2, 2)
+    await insertStat('TOP 10', 'Ranking', 'Flame', 0.3, 3)
 
     console.log('Estadísticas por defecto insertadas')
   }
 
-  const clanMemberCount = db.prepare('SELECT COUNT(*) as count FROM clan_members').get() as { count: number }
+  const clanMemberCount = (await db.execute('SELECT COUNT(*) as count FROM clan_members')).rows[0] as unknown as {
+    count: number
+  }
   if (clanMemberCount.count === 0) {
-    const insertClanMember = db.prepare(`
-      INSERT INTO clan_members (name, clan, country_code, title, sort_order)
-      VALUES (?, ?, ?, ?, ?)
-    `)
+    const insertClanMember = (name: string, clan: string, countryCode: string, title: string, sortOrder: number) =>
+      db.execute({
+        sql: `INSERT INTO clan_members (name, clan, country_code, title, sort_order) VALUES (?, ?, ?, ?, ?)`,
+        args: [name, clan, countryCode, title, sortOrder],
+      })
 
     // Rayo: roster real (24 integrantes)
     const rayoRoster: Array<[string, string, string]> = [
@@ -319,9 +348,11 @@ export function initializeDatabase() {
       ['Mr Germansinho', 'pa', 'Sub 21'],
       ['Muzan_Kibutsuji07', 'mx', ''],
     ]
-    rayoRoster.forEach(([name, countryCode, title], index) => {
-      insertClanMember.run(name, 'rayo', countryCode, title, index)
-    })
+    let rayoIndex = 0
+    for (const [name, countryCode, title] of rayoRoster) {
+      await insertClanMember(name, 'rayo', countryCode, title, rayoIndex)
+      rayoIndex += 1
+    }
 
     // Exiliados: roster real (18 integrantes)
     const exiliadosRoster: Array<[string, string, string]> = [
@@ -344,19 +375,31 @@ export function initializeDatabase() {
       ['eldelanterodelgine', 'es', 'Ex seleccionado mayor'],
       ['yari06', 'pa', 'Seleccionado mayor'],
     ]
-    exiliadosRoster.forEach(([name, countryCode, title], index) => {
-      insertClanMember.run(name, 'exiliados', countryCode, title, index)
-    })
+    let exIndex = 0
+    for (const [name, countryCode, title] of exiliadosRoster) {
+      await insertClanMember(name, 'exiliados', countryCode, title, exIndex)
+      exIndex += 1
+    }
 
     console.log('Miembros de clanes por defecto insertados (Rayo/Exiliados con roster real)')
   }
 
-  const eventCount = db.prepare('SELECT COUNT(*) as count FROM game_events').get() as { count: number }
+  const eventCount = (await db.execute('SELECT COUNT(*) as count FROM game_events')).rows[0] as unknown as {
+    count: number
+  }
   if (eventCount.count === 0) {
-    const insertEvent = db.prepare(`
-      INSERT INTO game_events (month_label, date_label, title, description, color, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
+    const insertEvent = (
+      monthLabel: string,
+      dateLabel: string,
+      title: string,
+      description: string,
+      color: string,
+      sortOrder: number
+    ) =>
+      db.execute({
+        sql: `INSERT INTO game_events (month_label, date_label, title, description, color, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [monthLabel, dateLabel, title, description, color, sortOrder],
+      })
 
     const MONTH = 'Septiembre 2026'
     const septemberEvents: Array<[string, string, string, string]> = [
@@ -428,18 +471,18 @@ export function initializeDatabase() {
       ],
     ]
 
-    septemberEvents.forEach(([dateLabel, title, description, color], index) => {
-      insertEvent.run(MONTH, dateLabel, title, description, color, index)
-    })
+    let evIndex = 0
+    for (const [dateLabel, title, description, color] of septemberEvents) {
+      await insertEvent(MONTH, dateLabel, title, description, color, evIndex)
+      evIndex += 1
+    }
 
     console.log('Eventos del juego (Septiembre 2026) insertados por defecto')
   }
 
-  syncRosterAccounts(db)
-  linkRosterMemberIds(db)
-  applyCaptainCorrections(db)
-
-  db.close()
+  await syncRosterAccounts(db)
+  await linkRosterMemberIds(db)
+  await applyCaptainCorrections(db)
 }
 
 export const ROSTER_DEFAULT_PASSWORD = 'exiliados123'
@@ -469,26 +512,26 @@ export function slugifyUsername(name: string): string {
 // integrante del roster de Rayo/Exiliados que todavía no tenga una. Es
 // idempotente: se ejecuta en cada arranque y solo crea lo que falte, sin
 // tocar cuentas existentes (evita duplicar, ej. 'chicolinas' ya es capitán).
-function syncRosterAccounts(db: Database.Database) {
-  const roster = db
-    .prepare(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados')`)
-    .all() as Array<{ name: string; clan: string }>
+async function syncRosterAccounts(db: Client) {
+  const roster = (await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados')`))
+    .rows as unknown as Array<{ name: string; clan: string }>
 
   const existingUsernames = new Set(
-    (db.prepare('SELECT LOWER(username) as u FROM members').all() as Array<{ u: string }>).map((r) => r.u)
+    ((await db.execute('SELECT LOWER(username) as u FROM members')).rows as unknown as Array<{ u: string }>).map(
+      (r) => r.u
+    )
   )
 
-  const insertMember = db.prepare(`
-    INSERT INTO members (username, password, role, full_name, clan, has_password)
-    VALUES (?, ?, 'member', ?, ?, 0)
-  `)
   const passwordHash = hashPassword(ROSTER_DEFAULT_PASSWORD)
 
   let created = 0
   for (const member of roster) {
     const username = slugifyUsername(member.name)
     if (!username || existingUsernames.has(username)) continue
-    insertMember.run(username, passwordHash, member.name, member.clan)
+    await db.execute({
+      sql: `INSERT INTO members (username, password, role, full_name, clan, has_password) VALUES (?, ?, 'member', ?, ?, 0)`,
+      args: [username, passwordHash, member.name, member.clan],
+    })
     existingUsernames.add(username)
     created += 1
   }
@@ -501,19 +544,19 @@ function syncRosterAccounts(db: Database.Database) {
 // Vincula clan_members.member_id con su cuenta de members ya existente. Cubre
 // tanto las cuentas recién creadas arriba como las que ya existían antes de
 // que existiera esta columna. Idempotente: solo completa los que falten.
-function linkRosterMemberIds(db: Database.Database) {
-  const unlinked = db
-    .prepare(`SELECT id, name FROM clan_members WHERE member_id IS NULL AND clan IN ('rayo', 'exiliados')`)
-    .all() as Array<{ id: number; name: string }>
-
-  const findMember = db.prepare(`SELECT id FROM members WHERE username = ?`)
-  const link = db.prepare(`UPDATE clan_members SET member_id = ? WHERE id = ?`)
+async function linkRosterMemberIds(db: Client) {
+  const unlinked = (
+    await db.execute(`SELECT id, name FROM clan_members WHERE member_id IS NULL AND clan IN ('rayo', 'exiliados')`)
+  ).rows as unknown as Array<{ id: number; name: string }>
 
   for (const row of unlinked) {
     const username = slugifyUsername(row.name)
     if (!username) continue
-    const member = findMember.get(username) as { id: number } | undefined
-    if (member) link.run(member.id, row.id)
+    const member = (await db.execute({ sql: `SELECT id FROM members WHERE username = ?`, args: [username] }))
+      .rows[0] as unknown as { id: number } | undefined
+    if (member) {
+      await db.execute({ sql: `UPDATE clan_members SET member_id = ? WHERE id = ?`, args: [member.id, row.id] })
+    }
   }
 }
 
@@ -530,26 +573,30 @@ const OBSOLETE_CAPTAIN_USERNAMES = ['exi', 'tomas', 'cesar', 'pepe']
 // cualquier cuenta de miembro que siga con la contraseña compartida por
 // defecto (para que la reclamen ellos mismos la primera vez que inicien
 // sesión). Idempotente: seguro de correr en cada arranque.
-function applyCaptainCorrections(db: Database.Database) {
+async function applyCaptainCorrections(db: Client) {
   const captainHash = hashPassword(CAPTAIN_PASSWORD)
-  const promote = db.prepare(`UPDATE members SET role = 'captain', password = ?, has_password = 1 WHERE username = ?`)
   for (const rosterName of CAPTAIN_ROSTER_NAMES) {
     const username = slugifyUsername(rosterName)
-    promote.run(captainHash, username)
+    await db.execute({
+      sql: `UPDATE members SET role = 'captain', password = ?, has_password = 1 WHERE username = ?`,
+      args: [captainHash, username],
+    })
   }
 
   // Las sesiones tienen FK a members: hay que borrarlas antes que la cuenta.
-  const deleteSessionsFor = db.prepare(`DELETE FROM sessions WHERE user_id IN (SELECT id FROM members WHERE username = ?)`)
-  const deleteObsolete = db.prepare(`DELETE FROM members WHERE username = ?`)
   for (const username of OBSOLETE_CAPTAIN_USERNAMES) {
-    deleteSessionsFor.run(username)
-    deleteObsolete.run(username)
+    await db.execute({
+      sql: `DELETE FROM sessions WHERE user_id IN (SELECT id FROM members WHERE username = ?)`,
+      args: [username],
+    })
+    await db.execute({ sql: `DELETE FROM members WHERE username = ?`, args: [username] })
   }
 
   const rosterDefaultHash = hashPassword(ROSTER_DEFAULT_PASSWORD)
-  db.prepare(
-    `UPDATE members SET password = '', has_password = 0 WHERE role = 'member' AND password = ?`
-  ).run(rosterDefaultHash)
+  await db.execute({
+    sql: `UPDATE members SET password = '', has_password = 0 WHERE role = 'member' AND password = ?`,
+    args: [rosterDefaultHash],
+  })
 }
 
 const FLAG_MAP: Record<string, string> = {

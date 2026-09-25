@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import crypto from 'crypto'
 import { getDatabase, hashPassword, slugifyUsername, verifyPassword } from '../db'
+import type { Client } from '@libsql/client'
 
 const router = Router()
 
@@ -14,11 +15,14 @@ interface MemberRow {
   has_password: number
 }
 
-function createSession(db: ReturnType<typeof getDatabase>, user: MemberRow) {
+async function createSession(db: Client, user: MemberRow) {
   const token = crypto.randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  db.prepare('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt)
+  await db.execute({
+    sql: 'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+    args: [user.id, token, expiresAt],
+  })
 
   return {
     token,
@@ -33,7 +37,7 @@ function createSession(db: ReturnType<typeof getDatabase>, user: MemberRow) {
   }
 }
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body ?? {}
 
@@ -45,12 +49,11 @@ router.post('/login', (req, res) => {
     // acentos o mayúsculas) y lo normaliza al mismo formato con el que se
     // generaron las cuentas, para no obligar a escribirlo exacto.
     const db = getDatabase()
-    const user = db.prepare('SELECT * FROM members WHERE username = ?').get(slugifyUsername(username)) as
-      | MemberRow
-      | undefined
+    const user = (
+      await db.execute({ sql: 'SELECT * FROM members WHERE username = ?', args: [slugifyUsername(username)] })
+    ).rows[0] as unknown as MemberRow | undefined
 
     if (!user) {
-      db.close()
       return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' })
     }
 
@@ -58,17 +61,14 @@ router.post('/login', (req, res) => {
     // fallar el login, le avisamos al frontend para que muestre el paso de
     // "crea tu contraseña" (POST /api/auth/set-password).
     if (!user.has_password) {
-      db.close()
       return res.json({ success: false, needsPasswordSetup: true, full_name: user.full_name })
     }
 
     if (!password || !verifyPassword(password, user.password)) {
-      db.close()
       return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' })
     }
 
-    const { token, data } = createSession(db, user)
-    db.close()
+    const { token, data } = await createSession(db, user)
 
     res.cookie('auth-token', token, {
       httpOnly: true,
@@ -90,7 +90,7 @@ router.post('/login', (req, res) => {
 // POST /api/auth/set-password - Primer inicio de sesión de un integrante del
 // roster: crea su contraseña y lo deja logueado. Solo funciona una vez (si
 // la cuenta ya tiene contraseña, se rechaza).
-router.post('/set-password', (req, res) => {
+router.post('/set-password', async (req, res) => {
   try {
     const { username, password } = req.body ?? {}
 
@@ -102,26 +102,23 @@ router.post('/set-password', (req, res) => {
     }
 
     const db = getDatabase()
-    const user = db.prepare('SELECT * FROM members WHERE username = ?').get(slugifyUsername(username)) as
-      | MemberRow
-      | undefined
+    const user = (
+      await db.execute({ sql: 'SELECT * FROM members WHERE username = ?', args: [slugifyUsername(username)] })
+    ).rows[0] as unknown as MemberRow | undefined
 
     if (!user) {
-      db.close()
       return res.status(404).json({ success: false, error: 'Usuario no encontrado' })
     }
     if (user.has_password) {
-      db.close()
       return res.status(400).json({ success: false, error: 'Esta cuenta ya tiene contraseña, inicia sesión normalmente' })
     }
 
-    db.prepare('UPDATE members SET password = ?, has_password = 1 WHERE id = ?').run(
-      hashPassword(password),
-      user.id
-    )
+    await db.execute({
+      sql: 'UPDATE members SET password = ?, has_password = 1 WHERE id = ?',
+      args: [hashPassword(password), user.id],
+    })
 
-    const { token, data } = createSession(db, { ...user, has_password: 1 })
-    db.close()
+    const { token, data } = await createSession(db, { ...user, has_password: 1 })
 
     res.cookie('auth-token', token, {
       httpOnly: true,
@@ -140,14 +137,13 @@ router.post('/set-password', (req, res) => {
   }
 })
 
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
   try {
     const { token } = req.body ?? {}
 
     if (token) {
       const db = getDatabase()
-      db.prepare('DELETE FROM sessions WHERE token = ?').run(token)
-      db.close()
+      await db.execute({ sql: 'DELETE FROM sessions WHERE token = ?', args: [token] })
     }
 
     res.clearCookie('auth-token')

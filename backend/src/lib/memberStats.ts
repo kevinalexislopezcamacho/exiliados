@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import type { ParsedMatch } from './battleReportParser'
 
 export interface MemberRecentMatch {
@@ -28,10 +28,13 @@ const RECENT_LIMIT = 8
 // Estadísticas reales de un integrante, sacadas de los reportes de batalla
 // (.xlsx) subidos para su clan — busca su nombre entre los managers de cada
 // partido registrado.
-export function computeMemberStats(db: Database.Database, fullName: string, clan: string): MemberStats {
-  const reports = db
-    .prepare(`SELECT id, title, matches_json FROM battle_reports WHERE clan = ? ORDER BY created_at DESC`)
-    .all(clan) as Array<{ id: number; title: string; matches_json: string }>
+export async function computeMemberStats(db: Client, fullName: string, clan: string): Promise<MemberStats> {
+  const reports = (
+    await db.execute({
+      sql: `SELECT id, title, matches_json FROM battle_reports WHERE clan = ? ORDER BY created_at DESC`,
+      args: [clan],
+    })
+  ).rows as unknown as Array<{ id: number; title: string; matches_json: string }>
 
   const nameLower = fullName.trim().toLowerCase()
   let pj = 0

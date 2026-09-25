@@ -6,19 +6,16 @@ const router = Router()
 const CLANS = ['exiliados', 'rayo'] as const
 
 // GET /api/community - Miembros del clan agrupados por sub-clan (Exiliados / Rayo)
-router.get('/', (_req, res) => {
+router.get('/', async (_req, res) => {
   try {
     const db = getDatabase()
-    const rows = db
-      .prepare(
-        `
+    const rows = (
+      await db.execute(`
       SELECT id, name, clan, country_code as countryCode, title
       FROM clan_members
       ORDER BY clan ASC, sort_order ASC
-    `
-      )
-      .all() as Array<{ id: number; name: string; clan: string; countryCode: string; title: string }>
-    db.close()
+    `)
+    ).rows as unknown as Array<{ id: number; name: string; clan: string; countryCode: string; title: string }>
 
     const data: Record<string, Array<{ id: number; name: string; flag: string; title: string }>> = {
       exiliados: [],

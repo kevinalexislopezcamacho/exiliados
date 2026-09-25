@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ChevronDown, ChevronUp, Trophy, Wifi, WifiOff } from 'lucide-react'
 import { clanLabel } from '@/lib/clans'
+
+const POLL_INTERVAL_MS = 10000
 
 interface RankingEntry {
   name: string
@@ -38,22 +40,32 @@ export function RankingsPanel() {
   const [rankings, setRankings] = useState<RankingsData | null>(null)
   const [connected, setConnected] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const eventSourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
-    const source = new EventSource('/api/rankings/stream')
-    eventSourceRef.current = source
+    let cancelled = false
 
-    source.onopen = () => setConnected(true)
-    source.onerror = () => setConnected(false)
+    const fetchRankings = async () => {
+      try {
+        const res = await fetch('/api/rankings')
+        const result = await res.json()
+        if (cancelled) return
+        if (result.success) {
+          setRankings(result.data)
+          setConnected(true)
+        } else {
+          setConnected(false)
+        }
+      } catch {
+        if (!cancelled) setConnected(false)
+      }
+    }
 
-    source.addEventListener('rankings', (event) => {
-      setConnected(true)
-      setRankings(JSON.parse((event as MessageEvent).data))
-    })
+    fetchRankings()
+    const interval = setInterval(fetchRankings, POLL_INTERVAL_MS)
 
     return () => {
-      source.close()
+      cancelled = true
+      clearInterval(interval)
     }
   }, [])
 
@@ -67,11 +79,11 @@ export function RankingsPanel() {
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {connected ? (
             <>
-              <Wifi className="w-3.5 h-3.5 text-primary" /> En vivo
+              <Wifi className="w-3.5 h-3.5 text-primary" /> Actualiza cada 10s
             </>
           ) : (
             <>
-              <WifiOff className="w-3.5 h-3.5" /> Conectando...
+              <WifiOff className="w-3.5 h-3.5" /> Sin conexión
             </>
           )}
         </div>

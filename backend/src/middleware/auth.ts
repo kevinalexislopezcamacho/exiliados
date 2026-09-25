@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.['auth-token']
 
   if (!token) {
@@ -25,17 +25,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const db = getDatabase()
-  const user = db
-    .prepare(
-      `
+  const user = (
+    await db.execute({
+      sql: `
     SELECT m.id, m.username, m.role, m.full_name, m.clan
     FROM members m
     JOIN sessions s ON m.id = s.user_id
     WHERE s.token = ? AND s.expires_at > datetime('now')
-  `
-    )
-    .get(token) as AuthUser | undefined
-  db.close()
+  `,
+      args: [token],
+    })
+  ).rows[0] as unknown as AuthUser | undefined
 
   if (!user) {
     return res.status(401).json({ success: false, error: 'Sesión inválida o expirada' })
@@ -54,8 +54,6 @@ export function requireCaptain(req: Request, res: Response, next: NextFunction) 
   })
 }
 
-// Solo chicolinas puede prender/apagar el acceso de los integrantes a los
-// reportes (jornadas/armado) de cada clan.
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   requireAuth(req, res, () => {
     if (req.user?.username !== 'chicolinas') {
@@ -65,18 +63,14 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
   })
 }
 
-// Solo chicolinas queda exenta: siempre puede ver los reportes de cualquier
-// clan. Todos los demás (capitanes incluidos, menos ella) solo si chicolinas
-// habilitó el acceso para ESA persona en particular (no por clan).
 export function requireReportAccess(req: Request, res: Response, next: NextFunction) {
-  requireAuth(req, res, () => {
+  requireAuth(req, res, async () => {
     if (req.user?.username === 'chicolinas') return next()
 
     const db = getDatabase()
-    const row = db.prepare('SELECT enabled FROM member_report_access WHERE member_id = ?').get(req.user?.id) as
-      | { enabled: number }
-      | undefined
-    db.close()
+    const row = (
+      await db.execute({ sql: 'SELECT enabled FROM member_report_access WHERE member_id = ?', args: [req.user!.id] })
+    ).rows[0] as unknown as { enabled: number } | undefined
 
     if (row?.enabled) return next()
     return res.status(403).json({

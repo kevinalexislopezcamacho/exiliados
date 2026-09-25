@@ -4,8 +4,6 @@ import { getDatabase } from '../db'
 import { requireCaptain, requireReportAccess } from '../middleware/auth'
 import { parseSquadWorkbook } from '../lib/squadReportParser'
 import { summarizeSquadReport } from '../lib/squadStats'
-import { computeReportRankings } from '../lib/reportRankings'
-import { broadcast } from '../sse'
 
 const router = Router()
 
@@ -52,15 +50,17 @@ function toListItem(row: SquadReportRow) {
 // GET /api/squad-reports - Lista de reportes de armado (chicolinas ve todos;
 // todos los demás, incluidos otros capitanes, solo los de su propio clan, y
 // solo si tienen acceso habilitado)
-router.get('/', requireReportAccess, (req, res) => {
+router.get('/', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
     const rows = (
       req.user?.username === 'chicolinas'
-        ? db.prepare('SELECT * FROM squad_reports ORDER BY created_at DESC').all()
-        : db.prepare('SELECT * FROM squad_reports WHERE clan = ? ORDER BY created_at DESC').all(req.user?.clan ?? '')
-    ) as SquadReportRow[]
-    db.close()
+        ? await db.execute('SELECT * FROM squad_reports ORDER BY created_at DESC')
+        : await db.execute({
+            sql: 'SELECT * FROM squad_reports WHERE clan = ? ORDER BY created_at DESC',
+            args: [req.user?.clan ?? ''],
+          })
+    ).rows as unknown as SquadReportRow[]
     res.json({ success: true, data: rows.map(toListItem) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo los reportes de armado' })
@@ -70,13 +70,11 @@ router.get('/', requireReportAccess, (req, res) => {
 // GET /api/squad-reports/:id - Detalle completo (chicolinas siempre; todos
 // los demás, incluidos otros capitanes, solo si tienen acceso Y el reporte
 // es de su propio clan)
-router.get('/:id', requireReportAccess, (req, res) => {
+router.get('/:id', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const row = db.prepare('SELECT * FROM squad_reports WHERE id = ?').get(req.params.id) as
-      | SquadReportRow
-      | undefined
-    db.close()
+    const row = (await db.execute({ sql: 'SELECT * FROM squad_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as SquadReportRow | undefined
 
     if (!row) {
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
@@ -111,14 +109,12 @@ router.post('/', requireCaptain, (req, res) => {
       const summary = summarizeSquadReport(parsed.teams)
 
       const db = getDatabase()
-      const result = db
-        .prepare(
-          `
+      const result = await db.execute({
+        sql: `
         INSERT INTO squad_reports (clan, title, opponent, file_name, sheet_name, uploaded_by, summary_json, teams_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `
-        )
-        .run(
+      `,
+        args: [
           clan,
           (title && String(title).trim()) || parsed.sheetName,
           '',
@@ -126,14 +122,14 @@ router.post('/', requireCaptain, (req, res) => {
           parsed.sheetName,
           req.user?.full_name ?? req.user?.username ?? null,
           JSON.stringify(summary),
-          JSON.stringify(parsed.teams)
-        )
+          JSON.stringify(parsed.teams),
+        ],
+      })
 
-      const row = db.prepare('SELECT * FROM squad_reports WHERE id = ?').get(result.lastInsertRowid) as SquadReportRow
-      const rankings = computeReportRankings(db)
-      db.close()
+      const row = (
+        await db.execute({ sql: 'SELECT * FROM squad_reports WHERE id = ?', args: [Number(result.lastInsertRowid)] })
+      ).rows[0] as unknown as SquadReportRow
 
-      broadcast('rankings', rankings)
       res.status(201).json({ success: true, data: { ...toListItem(row), teams: parsed.teams } })
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message || 'No se pudo analizar el archivo' })
@@ -142,20 +138,15 @@ router.post('/', requireCaptain, (req, res) => {
 })
 
 // DELETE /api/squad-reports/:id - Elimina un reporte de armado (solo capitanes)
-router.delete('/:id', requireCaptain, (req, res) => {
+router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
-    const result = db.prepare('DELETE FROM squad_reports WHERE id = ?').run(req.params.id)
+    const result = await db.execute({ sql: 'DELETE FROM squad_reports WHERE id = ?', args: [req.params.id] })
 
-    if (result.changes === 0) {
-      db.close()
+    if (result.rowsAffected === 0) {
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
     }
 
-    const rankings = computeReportRankings(db)
-    db.close()
-
-    broadcast('rankings', rankings)
     res.json({ success: true })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error eliminando el reporte' })

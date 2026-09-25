@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import { slugifyUsername } from '../db'
 import { RANKED_CLANS, type RankedClan } from './clanTypes'
 
@@ -18,19 +18,23 @@ export type SquadRankingsData = Record<RankedClan, SquadRankingEntry[]>
 // estado actual de su equipo y no mezclar batallas viejas. La hoja "Equipos"
 // trae AMBOS lados de la batalla (nosotros y el rival) — se filtra por el
 // roster real del clan para no mostrar jugadores rivales.
-export function computeSquadRankings(db: Database.Database): SquadRankingsData {
+export async function computeSquadRankings(db: Client): Promise<SquadRankingsData> {
   const data: SquadRankingsData = { rayo: [], exiliados: [] }
 
   for (const clan of RANKED_CLANS) {
     const rosterNames = new Set(
-      (db.prepare(`SELECT name FROM clan_members WHERE clan = ?`).all(clan) as Array<{ name: string }>).map((r) =>
-        slugifyUsername(r.name)
-      )
+      (
+        (await db.execute({ sql: `SELECT name FROM clan_members WHERE clan = ?`, args: [clan] }))
+          .rows as unknown as Array<{ name: string }>
+      ).map((r) => slugifyUsername(r.name))
     )
 
-    const reports = db
-      .prepare(`SELECT title, teams_json, created_at FROM squad_reports WHERE clan = ? ORDER BY created_at DESC`)
-      .all(clan) as Array<{ title: string; teams_json: string; created_at: string }>
+    const reports = (
+      await db.execute({
+        sql: `SELECT title, teams_json, created_at FROM squad_reports WHERE clan = ? ORDER BY created_at DESC`,
+        args: [clan],
+      })
+    ).rows as unknown as Array<{ title: string; teams_json: string; created_at: string }>
 
     const seen = new Set<string>()
     for (const report of reports) {

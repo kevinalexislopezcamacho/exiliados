@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type { Client } from '@libsql/client'
 import { slugifyUsername } from '../db'
 import { RANKED_CLANS, type RankedClan } from './clanTypes'
 import { computeReportRankings } from './reportRankings'
@@ -24,9 +24,9 @@ export interface GeneralRankingEntry {
 // efectividad, meta) con armado (valor de equipo, eficiencia) por manager, y
 // calcula el mismo puntaje compuesto 0-100 que se usa en los rankings por
 // clan, para decidir quién es "el mejor" de verdad entre todos.
-export function computeGeneralRanking(db: Database.Database): GeneralRankingEntry[] {
-  const jornadas = computeReportRankings(db)
-  const armado = computeSquadRankings(db)
+export async function computeGeneralRanking(db: Client): Promise<GeneralRankingEntry[]> {
+  const jornadas = await computeReportRankings(db)
+  const armado = await computeSquadRankings(db)
 
   const byName = new Map<string, GeneralRankingEntry>()
 
