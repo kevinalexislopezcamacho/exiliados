@@ -198,12 +198,6 @@ export default function LoginPage() {
                     <p>Usuario: tu nombre del juego (sin espacios ni acentos)</p>
                     <p>La primera vez, deja la contraseña vacía y créala cuando te lo pida</p>
                   </div>
-
-                  <div className="bg-primary/10 p-2 rounded">
-                    <p className="font-medium text-primary">Capitán:</p>
-                    <p>Usuario: tu nombre del juego</p>
-                    <p>Contraseña: capis123</p>
-                  </div>
                 </div>
               </div>
             </>
