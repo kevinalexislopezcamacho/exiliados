@@ -1,6 +1,5 @@
 import { Navigation } from "@/components/navigation"
 import { HeroSection } from "@/components/hero-section"
-import { StatsSection } from "@/components/stats-section"
 import { AboutSection } from "@/components/about-section"
 import { WarriorsSection } from "@/components/warriors-section"
 import { CommunitySection } from "@/components/community-section"
@@ -12,7 +11,6 @@ export default function Home() {
     <main className="relative">
       <Navigation />
       <HeroSection />
-      <StatsSection />
       <AboutSection />
       <div id="warriors">
         <WarriorsSection />

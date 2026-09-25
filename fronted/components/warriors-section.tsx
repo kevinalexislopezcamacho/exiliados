@@ -92,11 +92,13 @@ export function WarriorsSection() {
                   {/* Content */}
                   <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-background via-background/80 to-transparent">
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="text-primary text-xs tracking-[0.3em] uppercase">
-                        {warrior.rank}
-                      </span>
-                      <span 
-                        className="text-2xl leading-none" 
+                      {warrior.rank && (
+                        <span className="text-primary text-xs tracking-[0.3em] uppercase">
+                          {warrior.rank}
+                        </span>
+                      )}
+                      <span
+                        className="text-2xl leading-none"
                         title={warrior.nationality}
                         aria-label={warrior.nationality}
                       >
