@@ -10,7 +10,7 @@ router.get('/', (_req, res) => {
     const warriors = db
       .prepare(
         `
-      SELECT id, name, role, rank, nationality, country_code as countryCode, initial
+      SELECT id, name, role, rank, nationality, country_code as countryCode, initial, image_url as imageUrl
       FROM warriors
       ORDER BY id ASC
     `
@@ -23,6 +23,7 @@ router.get('/', (_req, res) => {
       nationality: string
       countryCode: string
       initial: string
+      imageUrl: string
     }>
     db.close()
 

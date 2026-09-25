@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import Image from "next/image"
 import { useEffect, useState } from "react"
 
 interface Warrior {
@@ -12,6 +13,7 @@ interface Warrior {
   countryCode: string
   flag: string
   initial: string
+  imageUrl: string
 }
 
 export function WarriorsSection() {
@@ -82,13 +84,22 @@ export function WarriorsSection() {
                 className="group relative"
               >
                 <div className="relative aspect-[3/4] bg-gradient-to-b from-card to-secondary rounded-lg overflow-hidden border border-border hover:border-primary/50 transition-all duration-500">
-                  {/* Japanese character background */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-[180px] font-bold text-border/20 select-none group-hover:text-primary/10 transition-colors duration-500">
-                      {warrior.initial}
-                    </span>
-                  </div>
-                  
+                  {/* Foto del manager, o la inicial como respaldo si no hay foto */}
+                  {warrior.imageUrl ? (
+                    <Image
+                      src={warrior.imageUrl}
+                      alt={warrior.name}
+                      fill
+                      className="object-cover object-top scale-125 group-hover:scale-[1.35] transition-transform duration-500"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[180px] font-bold text-border/20 select-none group-hover:text-primary/10 transition-colors duration-500">
+                        {warrior.initial}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Content */}
                   <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-background via-background/80 to-transparent">
                     <div className="flex items-center gap-3 mb-2">

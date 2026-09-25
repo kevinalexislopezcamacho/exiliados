@@ -60,9 +60,15 @@ export function initializeDatabase() {
       rank TEXT NOT NULL,
       nationality TEXT NOT NULL,
       country_code TEXT NOT NULL,
-      initial TEXT NOT NULL
+      initial TEXT NOT NULL,
+      image_url TEXT NOT NULL DEFAULT ''
     )
   `)
+
+  const warriorColumns = db.prepare(`PRAGMA table_info(warriors)`).all() as Array<{ name: string }>
+  if (!warriorColumns.some((col) => col.name === 'image_url')) {
+    db.exec(`ALTER TABLE warriors ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS stats (
