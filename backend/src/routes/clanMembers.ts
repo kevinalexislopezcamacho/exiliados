@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { getDatabase, hashPassword, slugifyUsername, ROSTER_DEFAULT_PASSWORD } from '../db'
-import { requireCaptain } from '../middleware/auth'
+import { requireCaptain, requireSuperAdmin } from '../middleware/auth'
 
 const router = Router()
 
@@ -22,7 +22,7 @@ function canManageClan(user: { clan: string | null; username: string } | undefin
   return user.clan === clan
 }
 
-function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword?: number | null }) {
+function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword?: number | null; role?: string | null }) {
   return {
     id: row.id,
     name: row.name,
@@ -31,6 +31,7 @@ function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword
     title: row.title,
     username: row.username ?? null,
     hasPassword: row.hasPassword ? Boolean(row.hasPassword) : false,
+    role: row.role ?? null,
   }
 }
 
@@ -51,14 +52,14 @@ router.get('/', requireCaptain, (req, res) => {
       .prepare(
         `
         SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
-               m.username as username, m.has_password as hasPassword
+               m.username as username, m.has_password as hasPassword, m.role as role
         FROM clan_members cm
         LEFT JOIN members m ON m.id = cm.member_id
         WHERE cm.clan = ?
         ORDER BY cm.sort_order ASC
       `
       )
-      .all(clan) as Array<ClanMemberRow & { username: string | null; hasPassword: number | null }>
+      .all(clan) as Array<ClanMemberRow & { username: string | null; hasPassword: number | null; role: string | null }>
     db.close()
 
     res.json({ success: true, data: rows.map(toApiShape) })
@@ -126,13 +127,13 @@ router.post('/', requireCaptain, (req, res) => {
       .prepare(
         `
         SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
-               m.username as username, m.has_password as hasPassword
+               m.username as username, m.has_password as hasPassword, m.role as role
         FROM clan_members cm
         LEFT JOIN members m ON m.id = cm.member_id
         WHERE cm.id = ?
       `
       )
-      .get(newId) as ClanMemberRow & { username: string | null; hasPassword: number | null }
+      .get(newId) as ClanMemberRow & { username: string | null; hasPassword: number | null; role: string | null }
     db.close()
 
     res.status(201).json({ success: true, data: toApiShape(created) })
@@ -221,18 +222,62 @@ router.put('/:id', requireCaptain, (req, res) => {
       .prepare(
         `
         SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
-               m.username as username, m.has_password as hasPassword
+               m.username as username, m.has_password as hasPassword, m.role as role
         FROM clan_members cm
         LEFT JOIN members m ON m.id = cm.member_id
         WHERE cm.id = ?
       `
       )
-      .get(id) as ClanMemberRow & { username: string | null; hasPassword: number | null }
+      .get(id) as ClanMemberRow & { username: string | null; hasPassword: number | null; role: string | null }
     db.close()
 
     res.json({ success: true, data: toApiShape(updated) })
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || 'Error actualizando integrante' })
+  }
+})
+
+// POST /api/clan-members/:id/set-role - Sube o baja de rango (member <-> captain)
+// a un integrante que ya tiene cuenta de acceso. Solo chicolinas puede hacerlo:
+// dar el rol de capitán es más delicado que solo mover a alguien entre clanes.
+router.post('/:id/set-role', requireSuperAdmin, (req, res) => {
+  const { id } = req.params
+  const { role } = req.body ?? {}
+
+  if (role !== 'captain' && role !== 'member') {
+    return res.status(400).json({ success: false, error: 'El rol debe ser "captain" o "member"' })
+  }
+
+  try {
+    const db = getDatabase()
+    const existing = db.prepare('SELECT * FROM clan_members WHERE id = ?').get(id) as ClanMemberRow | undefined
+    if (!existing) {
+      db.close()
+      return res.status(404).json({ success: false, error: 'Integrante no encontrado' })
+    }
+    if (!existing.member_id) {
+      db.close()
+      return res.status(400).json({ success: false, error: 'Este integrante todavía no tiene cuenta de acceso' })
+    }
+
+    db.prepare('UPDATE members SET role = ? WHERE id = ?').run(role, existing.member_id)
+
+    const updated = db
+      .prepare(
+        `
+        SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
+               m.username as username, m.has_password as hasPassword, m.role as role
+        FROM clan_members cm
+        LEFT JOIN members m ON m.id = cm.member_id
+        WHERE cm.id = ?
+      `
+      )
+      .get(id) as ClanMemberRow & { username: string | null; hasPassword: number | null; role: string | null }
+    db.close()
+
+    res.json({ success: true, data: toApiShape(updated) })
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || 'Error cambiando el rango' })
   }
 })
 
@@ -315,13 +360,13 @@ function moveMember(
       .prepare(
         `
         SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
-               m.username as username, m.has_password as hasPassword
+               m.username as username, m.has_password as hasPassword, m.role as role
         FROM clan_members cm
         LEFT JOIN members m ON m.id = cm.member_id
         WHERE cm.id = ?
       `
       )
-      .get(id) as ClanMemberRow & { username: string | null; hasPassword: number | null }
+      .get(id) as ClanMemberRow & { username: string | null; hasPassword: number | null; role: string | null }
     db.close()
 
     res.json({ success: true, data: toApiShape(updated) })

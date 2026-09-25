@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { clanLabel } from '@/lib/clans'
-import { Plus, X, Edit2, Trash, ArrowUpCircle, ArrowDownCircle, Users } from 'lucide-react'
+import { Plus, X, Edit2, Trash, ArrowUpCircle, ArrowDownCircle, Users, Crown, ShieldOff } from 'lucide-react'
 
 interface RosterMember {
   id: number
@@ -17,6 +17,7 @@ interface RosterMember {
   title: string
   username: string | null
   hasPassword: boolean
+  role: string | null
 }
 
 interface FormState {
@@ -175,6 +176,27 @@ export function RosterManagement({ clan, isSuperAdmin }: { clan: string; isSuper
     }
   }
 
+  const handleSetRole = async (member: RosterMember, role: 'captain' | 'member') => {
+    const question =
+      role === 'captain'
+        ? `¿Ascender a "${member.name}" a Capitán? Va a poder administrar su clan.`
+        : `¿Bajar a "${member.name}" a Miembro? Pierde los permisos de capitán.`
+    if (!confirm(question)) return
+    try {
+      const response = await fetch(`/api/clan-members/${member.id}/set-role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      })
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error)
+      setSuccess(role === 'captain' ? `${member.name} ahora es Capitán` : `${member.name} ahora es Miembro`)
+      fetchMembers(activeClan)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error cambiando el rango')
+    }
+  }
+
   return (
     <Card className="p-6 border-primary/20">
       <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
@@ -326,16 +348,42 @@ export function RosterManagement({ clan, isSuperAdmin }: { clan: string; isSuper
                     @{member.username} {member.hasPassword ? '' : '· sin contraseña aún'}
                   </p>
                 )}
-                {member.title && (
-                  <Badge
-                    variant="outline"
-                    className="mt-1 text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
-                  >
-                    {member.title}
-                  </Badge>
-                )}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {member.role === 'captain' && (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-primary/15 text-primary border-primary/30 font-normal">
+                      Capitán
+                    </Badge>
+                  )}
+                  {member.title && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
+                    >
+                      {member.title}
+                    </Badge>
+                  )}
+                </div>
               </div>
               <div className="flex flex-col gap-1 shrink-0">
+                {isSuperAdmin && member.username && (
+                  member.role === 'captain' ? (
+                    <button
+                      onClick={() => handleSetRole(member, 'member')}
+                      className="p-1 hover:bg-muted rounded"
+                      title="Bajar a Miembro"
+                    >
+                      <ShieldOff className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSetRole(member, 'captain')}
+                      className="p-1 hover:bg-muted rounded"
+                      title="Ascender a Capitán"
+                    >
+                      <Crown className="w-4 h-4 text-primary" />
+                    </button>
+                  )
+                )}
                 {activeClan === 'rayo' && (
                   <button
                     onClick={() => handlePromote(member)}
