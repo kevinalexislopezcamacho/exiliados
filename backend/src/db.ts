@@ -124,6 +124,70 @@ export function initializeDatabase() {
   if (!battleReportColumns.some((col) => col.name === 'slots_json')) {
     db.exec(`ALTER TABLE battle_reports ADD COLUMN slots_json TEXT NOT NULL DEFAULT '{}'`)
   }
+  // 'draft' = batalla creada sin Excel todavía, mientras se van cargando
+  // partidos a mano; 'final' = ya tiene el Excel oficial (todos los reportes
+  // viejos, subidos siempre por Excel, quedan 'final' con este default).
+  if (!battleReportColumns.some((col) => col.name === 'status')) {
+    db.exec(`ALTER TABLE battle_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'final'`)
+  }
+
+  // Partidos que un integrante reporta a mano desde la página mientras una
+  // batalla sigue en 'draft' (todavía no llega el Excel oficial). Al subir el
+  // Excel de esa batalla, los que ya vienen ahí reemplazan a estos; los que
+  // falten en el Excel se agregan como respaldo (ver matchSubmissions.ts).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS battle_match_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_id INTEGER NOT NULL,
+      member_id INTEGER NOT NULL,
+      manager TEXT NOT NULL,
+      jornada INTEGER,
+      condicion TEXT NOT NULL,
+      rival TEXT NOT NULL DEFAULT '',
+      gol_local INTEGER,
+      gol_visita INTEGER,
+      tiros_local INTEGER,
+      tiros_visita INTEGER,
+      posesion_local INTEGER,
+      posesion_visita INTEGER,
+      presion INTEGER,
+      tactica_nuestra TEXT NOT NULL DEFAULT '',
+      tactica_rival TEXT NOT NULL DEFAULT '',
+      estilo_nuestro TEXT NOT NULL DEFAULT '',
+      estilo_rival TEXT NOT NULL DEFAULT '',
+      estilo_pct INTEGER,
+      velocidad INTEGER,
+      defensas TEXT NOT NULL DEFAULT '',
+      medios TEXT NOT NULL DEFAULT '',
+      delanteros TEXT NOT NULL DEFAULT '',
+      campus INTEGER,
+      conclusiones TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (report_id) REFERENCES battle_reports(id),
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    )
+  `)
+
+  const submissionColumns = db.prepare(`PRAGMA table_info(battle_match_submissions)`).all() as Array<{ name: string }>
+  const addSubmissionColumnIfMissing = (name: string, ddl: string) => {
+    if (!submissionColumns.some((col) => col.name === name)) {
+      db.exec(`ALTER TABLE battle_match_submissions ADD COLUMN ${ddl}`)
+    }
+  }
+  addSubmissionColumnIfMissing('presion', 'presion INTEGER')
+  addSubmissionColumnIfMissing('tactica_nuestra', "tactica_nuestra TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('tactica_rival', "tactica_rival TEXT NOT NULL DEFAULT ''")
+  // 'estilo' (vieja, sin usar) queda huérfana si existe de una versión anterior;
+  // el dato real de estilo ahora se separa en elección (nuestro/rival) y % (PORCENTAJES).
+  addSubmissionColumnIfMissing('estilo_nuestro', "estilo_nuestro TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('estilo_rival', "estilo_rival TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('estilo_pct', 'estilo_pct INTEGER')
+  addSubmissionColumnIfMissing('velocidad', 'velocidad INTEGER')
+  addSubmissionColumnIfMissing('defensas', "defensas TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('medios', "medios TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('delanteros', "delanteros TEXT NOT NULL DEFAULT ''")
+  addSubmissionColumnIfMissing('campus', 'campus INTEGER')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS squad_reports (
@@ -383,10 +447,22 @@ export const ROSTER_DEFAULT_PASSWORD = 'exiliados123'
 export function slugifyUsername(name: string): string {
   // NFD separa cada letra acentuada en letra base + marca de acento; el
   // filtro final [^a-z0-9] descarta esa marca junto con espacios/símbolos.
-  return name
+  const latinized = name
     .normalize('NFD')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
+
+  if (latinized) return latinized
+
+  // Nombres sin ningún carácter latino/dígito (ej. completamente en japonés
+  // o coreano, como "お父ちゃん") quedarían vacíos con el filtro de arriba,
+  // lo que impedía crear o guardar la cuenta. En ese caso se conserva
+  // cualquier letra o número del idioma que sea (\p{L}/\p{N} cubren
+  // cualquier alfabeto), quitando solo espacios y símbolos.
+  return name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '')
 }
 
 // Crea una cuenta de acceso (rol member, contraseña por defecto) para cada

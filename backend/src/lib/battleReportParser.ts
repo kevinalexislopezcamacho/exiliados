@@ -96,6 +96,29 @@ function toNumberOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+export interface MatchOutcome {
+  gf: number | null
+  gc: number | null
+  dif: number | null
+  resultadoLetra: string
+  pts: number
+  resultado: string
+}
+
+// GF/GC/DIF/resultado/PTS se derivan siempre de goles+condición (nunca de
+// columnas de fórmulas del Excel, que a veces no traen el resultado
+// cacheado). La usan tanto el parser del Excel como los partidos reportados
+// a mano, para que ambos calculen el resultado exactamente igual.
+export function deriveOutcome(condicion: string, golLocal: number | null, golVisita: number | null): MatchOutcome {
+  const gf = condicion === 'Visita' ? golVisita : golLocal
+  const gc = condicion === 'Visita' ? golLocal : golVisita
+  const dif = gf !== null && gc !== null ? gf - gc : null
+  const resultadoLetra = dif !== null ? (dif > 0 ? 'V' : dif === 0 ? 'E' : 'D') : ''
+  const pts = resultadoLetra === 'V' ? 3 : resultadoLetra === 'E' ? 1 : 0
+  const resultado = golLocal !== null && golVisita !== null ? `${golLocal}-${golVisita}` : ''
+  return { gf, gc, dif, resultadoLetra, pts, resultado }
+}
+
 function resolveColumnKeys(groupRow: Array<string | number | boolean | null>, labelRow: Array<string | number | boolean | null>): string[] {
   const seen: Record<string, number> = {}
   let currentGroup = ''
@@ -196,12 +219,11 @@ export async function parseBattleWorkbook(buffer: Buffer): Promise<ParsedBattle>
     // traen el resultado cacheado (Google Sheets no siempre lo guarda para
     // todas las celdas del rango compartido). Se calculan aquí en vez de leer
     // esas columnas directamente, ya que son derivables de datos que sí son fiables.
-    const gf = condicion === 'Visita' ? golVisita : golLocal
-    const gc = condicion === 'Visita' ? golLocal : golVisita
-    const dif = gf !== null && gc !== null ? gf - gc : null
+    const outcome = deriveOutcome(condicion, golLocal, golVisita)
+    const { gf, gc, dif } = outcome
     let resultadoLetra = String(record['R'] ?? '').trim().toUpperCase()
-    if (resultadoLetra !== 'V' && resultadoLetra !== 'E' && resultadoLetra !== 'D' && dif !== null) {
-      resultadoLetra = dif > 0 ? 'V' : dif === 0 ? 'E' : 'D'
+    if (resultadoLetra !== 'V' && resultadoLetra !== 'E' && resultadoLetra !== 'D') {
+      resultadoLetra = outcome.resultadoLetra
     }
     const pts = resultadoLetra === 'V' ? 3 : resultadoLetra === 'E' ? 1 : 0
 

@@ -32,6 +32,7 @@ interface BattleReport {
   fileName: string
   uploadedBy: string | null
   createdAt: string
+  status: string
   summary: BattleSummary
 }
 
@@ -48,8 +49,15 @@ export default function BattleReportsPage() {
   const [clan, setClan] = useState('exiliados')
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [targetReportId, setTargetReportId] = useState('')
+
+  const [showDraftForm, setShowDraftForm] = useState(false)
+  const [draftTitle, setDraftTitle] = useState('')
+  const [draftOpponent, setDraftOpponent] = useState('')
+  const [creatingDraft, setCreatingDraft] = useState(false)
 
   const isCaptain = user?.role === 'captain'
+  const drafts = reports.filter((r) => r.status === 'draft' && r.clan === clan)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -91,6 +99,7 @@ export default function BattleReportsPage() {
       const form = new FormData()
       form.append('clan', clan)
       if (title.trim()) form.append('title', title.trim())
+      if (targetReportId) form.append('reportId', targetReportId)
       form.append('file', file)
 
       const response = await fetch('/api/battle-reports', { method: 'POST', body: form })
@@ -100,11 +109,37 @@ export default function BattleReportsPage() {
       setShowForm(false)
       setTitle('')
       setFile(null)
+      setTargetReportId('')
       fetchReports()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error subiendo el archivo')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleCreateDraft = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!draftTitle.trim()) {
+      setError('Ponle un título a la batalla')
+      return
+    }
+
+    setCreatingDraft(true)
+    try {
+      const response = await fetch('/api/battle-reports/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clan, title: draftTitle.trim(), opponent: draftOpponent.trim() }),
+      })
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error)
+      router.push(`/dashboard/battles/${result.data.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error creando la batalla')
+    } finally {
+      setCreatingDraft(false)
     }
   }
 
@@ -153,7 +188,26 @@ export default function BattleReportsPage() {
               </Link>
             )}
             {isCaptain && (
-              <Button onClick={() => setShowForm((s) => !s)} className="gap-2">
+              <Button
+                onClick={() => {
+                  setShowDraftForm((s) => !s)
+                  setShowForm(false)
+                }}
+                variant="outline"
+                className="gap-2 border-primary/40 hover:bg-primary/10"
+              >
+                {showDraftForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {showDraftForm ? 'Cancelar' : 'Nueva batalla en blanco'}
+              </Button>
+            )}
+            {isCaptain && (
+              <Button
+                onClick={() => {
+                  setShowForm((s) => !s)
+                  setShowDraftForm(false)
+                }}
+                className="gap-2"
+              >
                 {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                 {showForm ? 'Cancelar' : 'Subir reporte'}
               </Button>
@@ -167,6 +221,44 @@ export default function BattleReportsPage() {
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">
             {error}
           </div>
+        )}
+
+        {isCaptain && showDraftForm && (
+          <Card className="p-6">
+            <h3 className="font-bold text-lg mb-1 text-primary">Nueva batalla en blanco</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Se crea sin Excel todavía: cada integrante puede ir reportando su propio partido desde la página
+              mientras se junta el archivo oficial.
+            </p>
+            <form onSubmit={handleCreateDraft} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Clan</label>
+                <select
+                  value={clan}
+                  onChange={(e) => setClan(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background"
+                >
+                  {Object.entries(CLAN_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Título</label>
+                <Input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder="Ej. EXI vs REV" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Rival (opcional)</label>
+                <Input value={draftOpponent} onChange={(e) => setDraftOpponent(e.target.value)} placeholder="Ej. REV" />
+              </div>
+              <Button type="submit" disabled={creatingDraft} className="gap-2">
+                <Plus className="w-4 h-4" />
+                {creatingDraft ? 'Creando...' : 'Crear batalla'}
+              </Button>
+            </form>
+          </Card>
         )}
 
         {isCaptain && showForm && (
@@ -185,7 +277,10 @@ export default function BattleReportsPage() {
                 <label className="block text-sm font-medium mb-2">Clan</label>
                 <select
                   value={clan}
-                  onChange={(e) => setClan(e.target.value)}
+                  onChange={(e) => {
+                    setClan(e.target.value)
+                    setTargetReportId('')
+                  }}
                   className="w-full px-3 py-2 border border-border rounded-md bg-background"
                 >
                   {Object.entries(CLAN_LABELS).map(([key, label]) => (
@@ -195,6 +290,23 @@ export default function BattleReportsPage() {
                   ))}
                 </select>
               </div>
+              {drafts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">¿Es el Excel de una batalla en progreso?</label>
+                  <select
+                    value={targetReportId}
+                    onChange={(e) => setTargetReportId(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background"
+                  >
+                    <option value="">No, crear una batalla nueva</option>
+                    {drafts.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        Actualizar "{d.title}"
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium mb-2">Título (opcional)</label>
                 <Input
@@ -229,12 +341,21 @@ export default function BattleReportsPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {reports.map((report) => (
+            {reports.map((report) => {
+              const isDraft = report.status === 'draft'
+              return (
               <Card key={report.id} className="p-5 border-primary/20 hover:border-primary/50 transition-colors flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <Badge variant="outline" className="border-primary/40 text-primary">
-                    Clan {clanLabel(report.clan)}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="border-primary/40 text-primary">
+                      Clan {clanLabel(report.clan)}
+                    </Badge>
+                    {isDraft && (
+                      <Badge variant="outline" className="border-amber-500/40 text-amber-500">
+                        En progreso
+                      </Badge>
+                    )}
+                  </div>
                   {isCaptain && (
                     <button
                       onClick={() => handleDelete(report.id)}
@@ -251,32 +372,39 @@ export default function BattleReportsPage() {
                   vs {report.opponent || '—'} · {new Date(report.createdAt).toLocaleDateString()}
                 </p>
 
-                <div className="grid grid-cols-4 gap-2 text-center text-sm mb-4">
-                  <div>
-                    <p className="font-bold text-green-500">{report.summary.v}</p>
-                    <p className="text-[10px] text-muted-foreground">V</p>
+                {isDraft ? (
+                  <p className="text-sm text-muted-foreground mb-4 flex-1">
+                    Todavía no tiene Excel oficial. Entra a reportar tu partido mientras se junta.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 text-center text-sm mb-4">
+                    <div>
+                      <p className="font-bold text-green-500">{report.summary.v}</p>
+                      <p className="text-[10px] text-muted-foreground">V</p>
+                    </div>
+                    <div>
+                      <p className="font-bold">{report.summary.e}</p>
+                      <p className="text-[10px] text-muted-foreground">E</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-destructive">{report.summary.d}</p>
+                      <p className="text-[10px] text-muted-foreground">D</p>
+                    </div>
+                    <div>
+                      <p className="font-bold">{report.summary.pts}</p>
+                      <p className="text-[10px] text-muted-foreground">PTS</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-bold">{report.summary.e}</p>
-                    <p className="text-[10px] text-muted-foreground">E</p>
-                  </div>
-                  <div>
-                    <p className="font-bold text-destructive">{report.summary.d}</p>
-                    <p className="text-[10px] text-muted-foreground">D</p>
-                  </div>
-                  <div>
-                    <p className="font-bold">{report.summary.pts}</p>
-                    <p className="text-[10px] text-muted-foreground">PTS</p>
-                  </div>
-                </div>
+                )}
 
                 <Link href={`/dashboard/battles/${report.id}`} className="mt-auto">
                   <Button variant="outline" className="w-full border-primary/40 hover:bg-primary/10">
-                    Ver análisis completo
+                    {isDraft ? 'Reportar mi partido' : 'Ver análisis completo'}
                   </Button>
                 </Link>
               </Card>
-            ))}
+              )
+            })}
           </div>
         )}
       </main>

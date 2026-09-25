@@ -10,6 +10,7 @@ import { clanLabel } from '@/lib/clans'
 import { ArrowLeft, Trash } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AccessDeniedDialog } from '@/components/access-denied-dialog'
+import { BattleMatchForm, type MatchSubmission } from '@/components/battle-match-form'
 
 interface ManagerStats {
   manager: string
@@ -78,8 +79,10 @@ interface BattleReportDetail {
   sheetName: string
   uploadedBy: string | null
   createdAt: string
+  status: string
   summary: BattleSummary
   matches: Match[]
+  submissions?: MatchSubmission[]
 }
 
 function resultBadgeClass(letra: string) {
@@ -112,8 +115,8 @@ export default function BattleReportDetailPage() {
     }
   }, [user, loading, router])
 
-  useEffect(() => {
-    if (!user || !id) return
+  const fetchReport = () => {
+    if (!id) return
     setLoadingReport(true)
     fetch(`/api/battle-reports/${id}`)
       .then(async (res) => {
@@ -127,6 +130,11 @@ export default function BattleReportDetailPage() {
       })
       .catch(() => setError('Error cargando el reporte'))
       .finally(() => setLoadingReport(false))
+  }
+
+  useEffect(() => {
+    if (!user || !id) return
+    fetchReport()
   }, [user, id])
 
   const handleDelete = async () => {
@@ -192,6 +200,60 @@ export default function BattleReportDetailPage() {
             ))}
           </div>
           )
+        ) : report.status === 'draft' ? (
+          <>
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 text-sm">
+              <p className="font-medium text-amber-600 dark:text-amber-400">Esta batalla está en progreso</p>
+              <p className="text-muted-foreground mt-1">
+                Todavía no se subió el Excel oficial. Cada quien puede reportar aquí su propio partido; cuando el
+                capitán suba el archivo, esos datos se reemplazan automáticamente por lo que traiga el Excel.
+              </p>
+            </div>
+
+            <BattleMatchForm reportId={report.id} submissions={report.submissions ?? []} onChanged={fetchReport} />
+
+            <Card className="overflow-hidden">
+              <div className="p-6 pb-0">
+                <h3 className="font-bold text-lg text-primary">
+                  Lo que ya reportaron ({(report.submissions ?? []).length})
+                </h3>
+              </div>
+              <div className="overflow-x-auto mt-4">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted border-b border-border">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium">Manager</th>
+                      <th className="px-4 py-3 text-left font-medium">J</th>
+                      <th className="px-4 py-3 text-left font-medium">Cond.</th>
+                      <th className="px-4 py-3 text-left font-medium">Rival</th>
+                      <th className="px-4 py-3 text-center font-medium">Resultado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(report.submissions ?? []).length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                          Todavía nadie ha reportado un partido.
+                        </td>
+                      </tr>
+                    ) : (
+                      (report.submissions ?? []).map((s) => (
+                        <tr key={s.id} className="border-b border-border hover:bg-muted/50">
+                          <td className="px-4 py-3 font-medium">{s.manager}</td>
+                          <td className="px-4 py-3">{s.jornada ?? '—'}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{s.condicion}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{s.rival || '—'}</td>
+                          <td className="px-4 py-3 text-center">
+                            {s.golLocal ?? '—'}-{s.golVisita ?? '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </>
         ) : (
           <>
             {/* KPIs */}
@@ -324,10 +386,11 @@ export default function BattleReportDetailPage() {
                       <th className="px-4 py-3 text-left font-medium">Rival</th>
                       <th className="px-4 py-3 text-center font-medium">Resultado</th>
                       <th className="px-4 py-3 text-center font-medium">Alineación (Nuestra / Rival)</th>
-                      <th className="px-4 py-3 text-center font-medium">Presión</th>
-                      <th className="px-4 py-3 text-center font-medium">Estilo</th>
-                      <th className="px-4 py-3 text-center font-medium">Velocidad</th>
+                      <th className="px-4 py-3 text-center font-medium">Estilo (Nuestro / Rival)</th>
                       <th className="px-4 py-3 text-center font-medium">Líneas (Def / Med / Del)</th>
+                      <th className="px-4 py-3 text-center font-medium">Presión</th>
+                      <th className="px-4 py-3 text-center font-medium">Estilo %</th>
+                      <th className="px-4 py-3 text-center font-medium">Velocidad</th>
                       <th className="px-4 py-3 text-center font-medium">Campus</th>
                     </tr>
                   </thead>
@@ -348,6 +411,14 @@ export default function BattleReportDetailPage() {
                           <span className="text-muted-foreground"> vs </span>
                           <span className="text-muted-foreground">{detalleValue(m.detalle, 'TÁCTICAS__RIVAL')}</span>
                         </td>
+                        <td className="px-4 py-3 text-center text-xs whitespace-nowrap">
+                          <span className="font-medium">{detalleValue(m.detalle, 'ESTILO__NUESTRO')}</span>
+                          <span className="text-muted-foreground"> vs </span>
+                          <span className="text-muted-foreground">{detalleValue(m.detalle, 'ESTILO__RIVAL')}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">
+                          {detalleValue(m.detalle, 'DEFENSAS')} / {detalleValue(m.detalle, 'MEDIOS')} / {detalleValue(m.detalle, 'DELANTEROS')}
+                        </td>
                         <td className="px-4 py-3 text-center text-xs text-muted-foreground">
                           {detalleValue(m.detalle, 'PRESIÓN')}
                         </td>
@@ -356,9 +427,6 @@ export default function BattleReportDetailPage() {
                         </td>
                         <td className="px-4 py-3 text-center text-xs text-muted-foreground">
                           {detalleValue(m.detalle, 'VELOCIDAD')}
-                        </td>
-                        <td className="px-4 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">
-                          {detalleValue(m.detalle, 'DEFENSAS')} / {detalleValue(m.detalle, 'MEDIOS')} / {detalleValue(m.detalle, 'DELANTEROS')}
                         </td>
                         <td className="px-4 py-3 text-center text-xs text-muted-foreground">
                           {detalleValue(m.detalle, 'CAMPUS')}
