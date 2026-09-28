@@ -27,6 +27,7 @@ export interface MatchSubmissionRow {
   medios: string
   delanteros: string
   campus: number | null
+  campus_rival: number | null
   conclusiones: string
   created_at: string
   updated_at: string
@@ -49,6 +50,7 @@ export function submissionToMatch(row: MatchSubmissionRow): ParsedMatch {
   if (row.medios) detalle['MEDIOS'] = row.medios
   if (row.delanteros) detalle['DELANTEROS'] = row.delanteros
   if (row.campus !== null) detalle['CAMPUS'] = row.campus ? 'Sí' : 'No'
+  if (row.campus_rival !== null) detalle['CAMPUS_RIVAL'] = row.campus_rival ? 'Sí' : 'No'
 
   return {
     jornada: row.jornada ?? 0,

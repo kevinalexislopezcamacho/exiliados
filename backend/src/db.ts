@@ -176,6 +176,7 @@ export async function initializeDatabase() {
       medios TEXT NOT NULL DEFAULT '',
       delanteros TEXT NOT NULL DEFAULT '',
       campus INTEGER,
+      campus_rival INTEGER,
       conclusiones TEXT NOT NULL DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -204,6 +205,7 @@ export async function initializeDatabase() {
   await addSubmissionColumnIfMissing('medios', "medios TEXT NOT NULL DEFAULT ''")
   await addSubmissionColumnIfMissing('delanteros', "delanteros TEXT NOT NULL DEFAULT ''")
   await addSubmissionColumnIfMissing('campus', 'campus INTEGER')
+  await addSubmissionColumnIfMissing('campus_rival', 'campus_rival INTEGER')
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS squad_reports (

@@ -35,6 +35,7 @@ export interface MatchSubmission {
   medios: string
   delanteros: string
   campus: boolean | null
+  campusRival: boolean | null
   conclusiones: string
 }
 
@@ -59,6 +60,7 @@ interface FormState {
   medios: string
   delanteros: string
   campus: string // '', 'si', 'no'
+  campusRival: string // '', 'si', 'no'
   conclusiones: string
 }
 
@@ -83,6 +85,7 @@ const EMPTY_FORM: FormState = {
   medios: '',
   delanteros: '',
   campus: '',
+  campusRival: '',
   conclusiones: '',
 }
 
@@ -108,6 +111,7 @@ function submissionToForm(s: MatchSubmission): FormState {
     medios: s.medios ?? '',
     delanteros: s.delanteros ?? '',
     campus: s.campus === null ? '' : s.campus ? 'si' : 'no',
+    campusRival: s.campusRival === null ? '' : s.campusRival ? 'si' : 'no',
     conclusiones: s.conclusiones ?? '',
   }
 }
@@ -134,6 +138,7 @@ function toBody(f: FormState) {
     medios: f.medios,
     delanteros: f.delanteros,
     campus: f.campus === '' ? '' : f.campus === 'si',
+    campusRival: f.campusRival === '' ? '' : f.campusRival === 'si',
     conclusiones: f.conclusiones.trim(),
   }
 }
@@ -410,17 +415,31 @@ function MatchFields({
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium mb-1">¿Usaste Campus?</label>
-            <select
-              value={form.campus}
-              onChange={(e) => onChange({ ...form, campus: e.target.value })}
-              className="w-full h-9 px-3 border border-border rounded-md bg-background text-sm max-w-[200px]"
-            >
-              <option value="">Sin especificar</option>
-              <option value="si">Sí</option>
-              <option value="no">No</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3 max-w-[420px]">
+            <div>
+              <label className="block text-xs font-medium mb-1">¿Usaste Campus?</label>
+              <select
+                value={form.campus}
+                onChange={(e) => onChange({ ...form, campus: e.target.value })}
+                className="w-full h-9 px-3 border border-border rounded-md bg-background text-sm"
+              >
+                <option value="">Sin especificar</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">¿Rival usó Campus?</label>
+              <select
+                value={form.campusRival}
+                onChange={(e) => onChange({ ...form, campusRival: e.target.value })}
+                className="w-full h-9 px-3 border border-border rounded-md bg-background text-sm"
+              >
+                <option value="">Sin especificar</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+              </select>
+            </div>
           </div>
       </div>
     </div>

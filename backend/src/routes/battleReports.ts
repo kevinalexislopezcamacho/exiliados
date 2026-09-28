@@ -78,6 +78,7 @@ function toSubmissionItem(row: MatchSubmissionRow) {
     medios: row.medios,
     delanteros: row.delanteros,
     campus: row.campus === null ? null : !!row.campus,
+    campusRival: row.campus_rival === null ? null : !!row.campus_rival,
     conclusiones: row.conclusiones,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -133,6 +134,7 @@ function parseSubmissionBody(body: any) {
     medios,
     delanteros,
     campus: toBoolOrNull(body.campus),
+    campusRival: toBoolOrNull(body.campusRival),
     conclusiones: (body.conclusiones && String(body.conclusiones).trim()) || '',
   }
 }
@@ -309,8 +311,8 @@ router.post('/:id/submissions', requireReportAccess, async (req, res) => {
       INSERT INTO battle_match_submissions
         (report_id, member_id, manager, jornada, condicion, rival, gol_local, gol_visita, tiros_local, tiros_visita,
          posesion_local, posesion_visita, presion, tactica_nuestra, tactica_rival, estilo_nuestro, estilo_rival,
-         estilo_pct, velocidad, defensas, medios, delanteros, campus, conclusiones, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         estilo_pct, velocidad, defensas, medios, delanteros, campus, campus_rival, conclusiones, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
       args: [
         report.id,
@@ -336,6 +338,7 @@ router.post('/:id/submissions', requireReportAccess, async (req, res) => {
         parsed.medios,
         parsed.delanteros,
         parsed.campus,
+        parsed.campusRival,
         parsed.conclusiones,
       ],
     })
@@ -393,7 +396,7 @@ router.put('/:id/submissions/:subId', requireReportAccess, async (req, res) => {
         jornada = ?, condicion = ?, rival = ?, gol_local = ?, gol_visita = ?,
         tiros_local = ?, tiros_visita = ?, posesion_local = ?, posesion_visita = ?,
         presion = ?, tactica_nuestra = ?, tactica_rival = ?, estilo_nuestro = ?, estilo_rival = ?,
-        estilo_pct = ?, velocidad = ?, defensas = ?, medios = ?, delanteros = ?, campus = ?,
+        estilo_pct = ?, velocidad = ?, defensas = ?, medios = ?, delanteros = ?, campus = ?, campus_rival = ?,
         conclusiones = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `,
@@ -418,6 +421,7 @@ router.put('/:id/submissions/:subId', requireReportAccess, async (req, res) => {
         parsed.medios,
         parsed.delanteros,
         parsed.campus,
+        parsed.campusRival,
         parsed.conclusiones,
         submission.id,
       ],
@@ -571,6 +575,10 @@ router.post('/', requireCaptain, (req, res) => {
 router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
+    // Hay que soltar primero los partidos reportados a mano (FK a
+    // battle_reports): Turso sí exige foreign keys, a diferencia de la
+    // vieja base local en SQLite.
+    await db.execute({ sql: 'DELETE FROM battle_match_submissions WHERE report_id = ?', args: [req.params.id] })
     const result = await db.execute({ sql: 'DELETE FROM battle_reports WHERE id = ?', args: [req.params.id] })
 
     if (result.rowsAffected === 0) {

@@ -227,12 +227,23 @@ export default function BattleReportDetailPage() {
                       <th className="px-4 py-3 text-left font-medium">Cond.</th>
                       <th className="px-4 py-3 text-left font-medium">Rival</th>
                       <th className="px-4 py-3 text-center font-medium">Resultado</th>
+                      <th className="px-4 py-3 text-center font-medium">Alineación (Nuestra / Rival)</th>
+                      <th className="px-4 py-3 text-center font-medium">Estilo (Nuestro / Rival)</th>
+                      <th className="px-4 py-3 text-center font-medium">Líneas (Def / Med / Del)</th>
+                      <th className="px-4 py-3 text-center font-medium">Tiros (Local / Visita)</th>
+                      <th className="px-4 py-3 text-center font-medium">Posesión (Local / Visita)</th>
+                      <th className="px-4 py-3 text-center font-medium">Presión</th>
+                      <th className="px-4 py-3 text-center font-medium">Estilo %</th>
+                      <th className="px-4 py-3 text-center font-medium">Velocidad</th>
+                      <th className="px-4 py-3 text-center font-medium">Campus</th>
+                      <th className="px-4 py-3 text-center font-medium">Campus Rival</th>
+                      <th className="px-4 py-3 text-left font-medium">Conclusiones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(report.submissions ?? []).length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                        <td colSpan={16} className="px-4 py-6 text-center text-muted-foreground">
                           Todavía nadie ha reportado un partido.
                         </td>
                       </tr>
@@ -246,6 +257,35 @@ export default function BattleReportDetailPage() {
                           <td className="px-4 py-3 text-center">
                             {s.golLocal ?? '—'}-{s.golVisita ?? '—'}
                           </td>
+                          <td className="px-4 py-3 text-center text-xs whitespace-nowrap">
+                            <span className="font-medium">{s.tacticaNuestra || '—'}</span>
+                            <span className="text-muted-foreground"> vs </span>
+                            <span className="text-muted-foreground">{s.tacticaRival || '—'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs whitespace-nowrap">
+                            <span className="font-medium">{s.estiloNuestro || '—'}</span>
+                            <span className="text-muted-foreground"> vs </span>
+                            <span className="text-muted-foreground">{s.estiloRival || '—'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">
+                            {s.defensas || '—'} / {s.medios || '—'} / {s.delanteros || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">
+                            {s.tirosLocal ?? '—'} / {s.tirosVisita ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">
+                            {s.posesionLocal ?? '—'} / {s.posesionVisita ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">{s.presion ?? '—'}</td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">{s.estiloPct ?? '—'}</td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">{s.velocidad ?? '—'}</td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">
+                            {s.campus === null ? '—' : s.campus ? 'Sí' : 'No'}
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">
+                            {s.campusRival === null ? '—' : s.campusRival ? 'Sí' : 'No'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">{s.conclusiones || '—'}</td>
                         </tr>
                       ))
                     )}
