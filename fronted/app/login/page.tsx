@@ -188,18 +188,6 @@ export default function LoginPage() {
                   {loading ? 'Iniciando sesión...' : 'Ingresar'}
                 </Button>
               </form>
-
-              <div className="mt-8 pt-6 border-t border-border/30">
-                <p className="text-xs text-muted-foreground mb-3 font-semibold">CÓMO ENTRAR:</p>
-
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <div className="bg-card/50 p-2 rounded">
-                    <p className="font-medium">Integrante:</p>
-                    <p>Usuario: tu nombre del juego (sin espacios ni acentos)</p>
-                    <p>La primera vez, deja la contraseña vacía y créala cuando te lo pida</p>
-                  </div>
-                </div>
-              </div>
             </>
           )}
         </div>
