@@ -44,8 +44,12 @@ export default function SquadReportsPage() {
   const [clan, setClan] = useState('exiliados')
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [clanFilter, setClanFilter] = useState('')
 
   const isCaptain = user?.role === 'captain'
+  // Exiliados ve sus reportes y los de Rayo juntos (y puede filtrar); Rayo
+  // solo ve los suyos, así que no tiene nada que filtrar.
+  const canFilterClan = user?.username === 'chicolinas' || user?.clan === 'exiliados'
 
   useEffect(() => {
     if (!loading && !user) {
@@ -53,9 +57,10 @@ export default function SquadReportsPage() {
     }
   }, [user, loading, router])
 
-  const fetchReports = () => {
+  const fetchReports = (filterClan: string) => {
     setLoadingReports(true)
-    fetch('/api/squad-reports')
+    const qs = filterClan ? `?clan=${filterClan}` : ''
+    fetch(`/api/squad-reports${qs}`)
       .then(async (res) => {
         const result = await res.json()
         if (res.status === 403) {
@@ -70,8 +75,8 @@ export default function SquadReportsPage() {
   }
 
   useEffect(() => {
-    if (user) fetchReports()
-  }, [user])
+    if (user) fetchReports(clanFilter)
+  }, [user, clanFilter])
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,7 +101,7 @@ export default function SquadReportsPage() {
       setShowForm(false)
       setTitle('')
       setFile(null)
-      fetchReports()
+      fetchReports(clanFilter)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error subiendo el archivo')
     } finally {
@@ -158,6 +163,29 @@ export default function SquadReportsPage() {
           </div>
         )}
 
+        {canFilterClan && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {[
+                { key: '', label: 'Todos' },
+                { key: 'exiliados', label: 'Exiliados' },
+                { key: 'rayo', label: 'Rayo' },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setClanFilter(opt.key)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {isCaptain && showForm && (
           <Card className="p-6">
             <h3 className="font-bold text-lg mb-4 text-primary">Subir archivo .xlsx</h3>
@@ -216,7 +244,7 @@ export default function SquadReportsPage() {
                   <Badge variant="outline" className="border-primary/40 text-primary">
                     Clan {clanLabel(report.clan)}
                   </Badge>
-                  {isCaptain && (
+                  {isCaptain && (user.username === 'chicolinas' || report.clan === user.clan) && (
                     <button
                       onClick={() => handleDelete(report.id)}
                       className="p-1 hover:bg-destructive/10 rounded"

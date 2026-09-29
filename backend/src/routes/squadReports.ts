@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { getDatabase } from '../db'
 import { requireCaptain, requireReportAccess } from '../middleware/auth'
+import { visibleClansFor } from '../lib/clanAccess'
 import { parseSquadWorkbook } from '../lib/squadReportParser'
 import { summarizeSquadReport } from '../lib/squadStats'
 
@@ -47,29 +48,49 @@ function toListItem(row: SquadReportRow) {
   }
 }
 
-// GET /api/squad-reports - Lista de reportes de armado (chicolinas ve todos;
-// todos los demás, incluidos otros capitanes, solo los de su propio clan, y
-// solo si tienen acceso habilitado)
+// GET /api/squad-reports?clan=X - Lista de reportes de armado (chicolinas ve
+// todos, o filtra por ?clan=; Exiliados ve los suyos y los de Rayo juntos, o
+// filtra por ?clan= a uno de los dos; todos los demás, incluidos otros
+// capitanes, solo los de su propio clan, y solo si tienen acceso habilitado)
 router.get('/', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const rows = (
-      req.user?.username === 'chicolinas'
-        ? await db.execute('SELECT * FROM squad_reports ORDER BY created_at DESC')
-        : await db.execute({
-            sql: 'SELECT * FROM squad_reports WHERE clan = ? ORDER BY created_at DESC',
-            args: [req.user?.clan ?? ''],
+    const requestedClan = typeof req.query.clan === 'string' ? req.query.clan : ''
+
+    let rows: unknown[]
+    if (req.user?.username === 'chicolinas') {
+      rows = requestedClan
+        ? (
+            await db.execute({
+              sql: 'SELECT * FROM squad_reports WHERE clan = ? ORDER BY created_at DESC',
+              args: [requestedClan],
+            })
+          ).rows
+        : (await db.execute('SELECT * FROM squad_reports ORDER BY created_at DESC')).rows
+    } else {
+      const allowed = visibleClansFor(req.user)
+      if (allowed.length === 0) {
+        rows = []
+      } else {
+        const clans = allowed.includes(requestedClan) ? [requestedClan] : allowed
+        const placeholders = clans.map(() => '?').join(', ')
+        rows = (
+          await db.execute({
+            sql: `SELECT * FROM squad_reports WHERE clan IN (${placeholders}) ORDER BY created_at DESC`,
+            args: clans,
           })
-    ).rows as unknown as SquadReportRow[]
-    res.json({ success: true, data: rows.map(toListItem) })
+        ).rows
+      }
+    }
+    res.json({ success: true, data: (rows as unknown as SquadReportRow[]).map(toListItem) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo los reportes de armado' })
   }
 })
 
-// GET /api/squad-reports/:id - Detalle completo (chicolinas siempre; todos
-// los demás, incluidos otros capitanes, solo si tienen acceso Y el reporte
-// es de su propio clan)
+// GET /api/squad-reports/:id - Detalle completo (chicolinas siempre; Exiliados
+// también puede ver los de Rayo; todos los demás, incluidos otros capitanes,
+// solo si tienen acceso Y el reporte es de su propio clan)
 router.get('/:id', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
@@ -79,7 +100,7 @@ router.get('/:id', requireReportAccess, async (req, res) => {
     if (!row) {
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
     }
-    if (req.user?.username !== 'chicolinas' && row.clan !== req.user?.clan) {
+    if (req.user?.username !== 'chicolinas' && !visibleClansFor(req.user).includes(row.clan)) {
       return res.status(403).json({ success: false, error: 'Este reporte no es de tu clan' })
     }
 
@@ -137,10 +158,20 @@ router.post('/', requireCaptain, (req, res) => {
   })
 })
 
-// DELETE /api/squad-reports/:id - Elimina un reporte de armado (solo capitanes)
+// DELETE /api/squad-reports/:id - Elimina un reporte de armado (solo el
+// capitán del mismo clan del reporte, o chicolinas)
 router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
+    const report = (await db.execute({ sql: 'SELECT clan FROM squad_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as { clan: string } | undefined
+    if (!report) {
+      return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
+    }
+    if (req.user?.username !== 'chicolinas' && report.clan !== req.user?.clan) {
+      return res.status(403).json({ success: false, error: 'Solo el capitán de ese clan puede eliminar este reporte' })
+    }
+
     const result = await db.execute({ sql: 'DELETE FROM squad_reports WHERE id = ?', args: [req.params.id] })
 
     if (result.rowsAffected === 0) {

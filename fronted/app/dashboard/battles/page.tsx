@@ -55,9 +55,13 @@ export default function BattleReportsPage() {
   const [draftTitle, setDraftTitle] = useState('')
   const [draftOpponent, setDraftOpponent] = useState('')
   const [creatingDraft, setCreatingDraft] = useState(false)
+  const [clanFilter, setClanFilter] = useState('')
 
   const isCaptain = user?.role === 'captain'
   const drafts = reports.filter((r) => r.status === 'draft' && r.clan === clan)
+  // Exiliados ve sus reportes y los de Rayo juntos (y puede filtrar); Rayo
+  // solo ve los suyos, así que no tiene nada que filtrar.
+  const canFilterClan = user?.username === 'chicolinas' || user?.clan === 'exiliados'
 
   useEffect(() => {
     if (!loading && !user) {
@@ -65,9 +69,10 @@ export default function BattleReportsPage() {
     }
   }, [user, loading, router])
 
-  const fetchReports = () => {
+  const fetchReports = (filterClan: string) => {
     setLoadingReports(true)
-    fetch('/api/battle-reports')
+    const qs = filterClan ? `?clan=${filterClan}` : ''
+    fetch(`/api/battle-reports${qs}`)
       .then(async (res) => {
         const result = await res.json()
         if (res.status === 403) {
@@ -82,8 +87,8 @@ export default function BattleReportsPage() {
   }
 
   useEffect(() => {
-    if (user) fetchReports()
-  }, [user])
+    if (user) fetchReports(clanFilter)
+  }, [user, clanFilter])
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -110,7 +115,7 @@ export default function BattleReportsPage() {
       setTitle('')
       setFile(null)
       setTargetReportId('')
-      fetchReports()
+      fetchReports(clanFilter)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error subiendo el archivo')
     } finally {
@@ -220,6 +225,29 @@ export default function BattleReportsPage() {
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">
             {error}
+          </div>
+        )}
+
+        {canFilterClan && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {[
+                { key: '', label: 'Todos' },
+                { key: 'exiliados', label: 'Exiliados' },
+                { key: 'rayo', label: 'Rayo' },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setClanFilter(opt.key)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -356,7 +384,7 @@ export default function BattleReportsPage() {
                       </Badge>
                     )}
                   </div>
-                  {isCaptain && (
+                  {isCaptain && (user.username === 'chicolinas' || report.clan === user.clan) && (
                     <button
                       onClick={() => handleDelete(report.id)}
                       className="p-1 hover:bg-destructive/10 rounded"

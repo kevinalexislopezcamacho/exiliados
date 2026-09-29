@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { getDatabase } from '../db'
 import { requireAuth, requireCaptain, requireReportAccess } from '../middleware/auth'
+import { visibleClansFor } from '../lib/clanAccess'
 import { parseBattleWorkbook } from '../lib/battleReportParser'
 import { summarizeBattle } from '../lib/battleStats'
 import { computeMemberStats } from '../lib/memberStats'
@@ -160,12 +161,19 @@ router.get('/me', requireAuth, async (req, res) => {
 
 // GET /api/battle-reports/tactics?clan=X - Efectividad por banda de presión y
 // alineación, cruzando todos los reportes de ese clan (chicolinas puede ver
-// cualquier clan; todos los demás, incluidos otros capitanes, solo el suyo y
-// solo si el acceso está habilitado).
-// Va antes de "/:id" para que Express no la confunda con un id.
+// cualquier clan; Exiliados puede ver el suyo o el de Rayo; todos los demás,
+// incluidos otros capitanes, solo el suyo, y solo si el acceso está
+// habilitado). Va antes de "/:id" para que Express no la confunda con un id.
 router.get('/tactics', requireReportAccess, async (req, res) => {
   try {
-    const clan = req.user?.username === 'chicolinas' ? String(req.query.clan ?? '') : req.user?.clan ?? ''
+    let clan: string
+    if (req.user?.username === 'chicolinas') {
+      clan = String(req.query.clan ?? '')
+    } else {
+      const allowed = visibleClansFor(req.user)
+      const requested = String(req.query.clan ?? '')
+      clan = allowed.includes(requested) ? requested : req.user?.clan ?? ''
+    }
     if (!clan) {
       return res.status(400).json({ success: false, error: 'Debes indicar el clan (?clan=rayo|exiliados)' })
     }
@@ -177,21 +185,41 @@ router.get('/tactics', requireReportAccess, async (req, res) => {
   }
 })
 
-// GET /api/battle-reports - Lista de reportes de batalla (chicolinas ve
-// todos; todos los demás, incluidos otros capitanes, solo los de su propio
-// clan, y solo si tienen acceso habilitado)
+// GET /api/battle-reports?clan=X - Lista de reportes de batalla (chicolinas
+// ve todos, o filtra por ?clan=; Exiliados ve los suyos y los de Rayo juntos,
+// o filtra por ?clan= a uno de los dos; todos los demás, incluidos otros
+// capitanes, solo los de su propio clan, y solo si tienen acceso habilitado)
 router.get('/', requireReportAccess, async (req, res) => {
   try {
     const db = getDatabase()
-    const rows = (
-      req.user?.username === 'chicolinas'
-        ? await db.execute('SELECT * FROM battle_reports ORDER BY created_at DESC')
-        : await db.execute({
-            sql: 'SELECT * FROM battle_reports WHERE clan = ? ORDER BY created_at DESC',
-            args: [req.user?.clan ?? ''],
+    const requestedClan = typeof req.query.clan === 'string' ? req.query.clan : ''
+
+    let rows: unknown[]
+    if (req.user?.username === 'chicolinas') {
+      rows = requestedClan
+        ? (
+            await db.execute({
+              sql: 'SELECT * FROM battle_reports WHERE clan = ? ORDER BY created_at DESC',
+              args: [requestedClan],
+            })
+          ).rows
+        : (await db.execute('SELECT * FROM battle_reports ORDER BY created_at DESC')).rows
+    } else {
+      const allowed = visibleClansFor(req.user)
+      if (allowed.length === 0) {
+        rows = []
+      } else {
+        const clans = allowed.includes(requestedClan) ? [requestedClan] : allowed
+        const placeholders = clans.map(() => '?').join(', ')
+        rows = (
+          await db.execute({
+            sql: `SELECT * FROM battle_reports WHERE clan IN (${placeholders}) ORDER BY created_at DESC`,
+            args: clans,
           })
-    ).rows as unknown as BattleReportRow[]
-    res.json({ success: true, data: rows.map(toListItem) })
+        ).rows
+      }
+    }
+    res.json({ success: true, data: (rows as unknown as BattleReportRow[]).map(toListItem) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo los reportes de batalla' })
   }
@@ -249,7 +277,7 @@ router.get('/:id', requireReportAccess, async (req, res) => {
     if (!row) {
       return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
     }
-    if (req.user?.username !== 'chicolinas' && row.clan !== req.user?.clan) {
+    if (req.user?.username !== 'chicolinas' && !visibleClansFor(req.user).includes(row.clan)) {
       return res.status(403).json({ success: false, error: 'Este reporte no es de tu clan' })
     }
 
@@ -571,10 +599,21 @@ router.post('/', requireCaptain, (req, res) => {
   })
 })
 
-// DELETE /api/battle-reports/:id - Elimina un reporte (solo capitanes)
+// DELETE /api/battle-reports/:id - Elimina un reporte (solo el capitán del
+// mismo clan del reporte, o chicolinas; ver el reporte de otro clan, ej.
+// Exiliados viendo Rayo, no da permiso para borrarlo)
 router.delete('/:id', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
+    const report = (await db.execute({ sql: 'SELECT clan FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as { clan: string } | undefined
+    if (!report) {
+      return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
+    }
+    if (req.user?.username !== 'chicolinas' && report.clan !== req.user?.clan) {
+      return res.status(403).json({ success: false, error: 'Solo el capitán de ese clan puede eliminar este reporte' })
+    }
+
     // Hay que soltar primero los partidos reportados a mano (FK a
     // battle_reports): Turso sí exige foreign keys, a diferencia de la
     // vieja base local en SQLite.

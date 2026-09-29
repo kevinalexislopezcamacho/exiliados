@@ -74,6 +74,8 @@ export default function TacticalAnalysisPage() {
   }
 
   const isSuperAdmin = user?.username === 'chicolinas'
+  // Exiliados ve su propio análisis táctico y el de Rayo; Rayo solo el suyo.
+  const canPickClan = isSuperAdmin || user?.clan === 'exiliados'
 
   useEffect(() => {
     if (!loading && !user) {
@@ -125,7 +127,7 @@ export default function TacticalAnalysisPage() {
             </div>
           </div>
 
-          {isSuperAdmin && (
+          {canPickClan && (
             <select
               value={clan}
               onChange={(e) => setClan(e.target.value)}
