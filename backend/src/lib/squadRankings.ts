@@ -13,11 +13,12 @@ export interface SquadRankingEntry {
 
 export type SquadRankingsData = Record<RankedClan, SquadRankingEntry[]>
 
-// Ranking de armado por clan: para cada manager se usa su entrada MÁS
-// RECIENTE (el último reporte de armado donde aparece), para reflejar el
-// estado actual de su equipo y no mezclar batallas viejas. La hoja "Equipos"
-// trae AMBOS lados de la batalla (nosotros y el rival) — se filtra por el
-// roster real del clan para no mostrar jugadores rivales.
+// Ranking de armado por clan: para cada manager se usa su entrada de MAYOR
+// VALOR DE EQUIPO entre todos los reportes de armado donde aparece (su pico
+// histórico), junto con la eficiencia/compras/ventas de ESE MISMO reporte
+// (no se mezclan campos de reportes distintos). La hoja "Equipos" trae AMBOS
+// lados de la batalla (nosotros y el rival) — se filtra por el roster real
+// del clan para no mostrar jugadores rivales.
 export async function computeSquadRankings(db: Client): Promise<SquadRankingsData> {
   const data: SquadRankingsData = { rayo: [], exiliados: [] }
 
@@ -31,12 +32,12 @@ export async function computeSquadRankings(db: Client): Promise<SquadRankingsDat
 
     const reports = (
       await db.execute({
-        sql: `SELECT title, teams_json, created_at FROM squad_reports WHERE clan = ? ORDER BY created_at DESC`,
+        sql: `SELECT title, teams_json FROM squad_reports WHERE clan = ?`,
         args: [clan],
       })
-    ).rows as unknown as Array<{ title: string; teams_json: string; created_at: string }>
+    ).rows as unknown as Array<{ title: string; teams_json: string }>
 
-    const seen = new Set<string>()
+    const best = new Map<string, SquadRankingEntry>()
     for (const report of reports) {
       const teams = JSON.parse(report.teams_json) as Array<{
         usuario: string
@@ -47,9 +48,10 @@ export async function computeSquadRankings(db: Client): Promise<SquadRankingsDat
       }>
       for (const t of teams) {
         const key = slugifyUsername(t.usuario)
-        if (!key || seen.has(key) || !rosterNames.has(key)) continue
-        seen.add(key)
-        data[clan].push({
+        if (!key || !rosterNames.has(key)) continue
+        const current = best.get(key)
+        if (current && (current.valorActual ?? -Infinity) >= (t.valorActual ?? -Infinity)) continue
+        best.set(key, {
           usuario: t.usuario,
           valorActual: t.valorActual,
           eficiencia: t.eficiencia,
@@ -60,7 +62,7 @@ export async function computeSquadRankings(db: Client): Promise<SquadRankingsDat
       }
     }
 
-    data[clan].sort((a, b) => (b.valorActual ?? -Infinity) - (a.valorActual ?? -Infinity))
+    data[clan] = Array.from(best.values()).sort((a, b) => (b.valorActual ?? -Infinity) - (a.valorActual ?? -Infinity))
   }
 
   return data
