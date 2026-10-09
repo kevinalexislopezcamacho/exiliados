@@ -75,15 +75,45 @@ export function submissionToMatch(row: MatchSubmissionRow): ParsedMatch {
 }
 
 // Al subir el Excel oficial de una batalla que ya tenía partidos reportados
-// a mano: el Excel manda para cualquier manager que aparezca en él; los
-// partidos manuales de gente que el Excel no trae se agregan como respaldo.
+// a mano: se cruza manager+jornada, no el manager entero. Si alguien
+// reportó una jornada a mano, esa versión manda sobre lo que traiga el
+// Excel para esa misma jornada (el Excel a veces viene incompleto o con esa
+// fila perdida); el resto de jornadas de ese manager, y los demás managers,
+// salen del Excel tal cual. Las jornadas reportadas a mano que el Excel no
+// trae para nada también se agregan.
+function matchKey(manager: string, jornada: number) {
+  return `${manager.trim().toLowerCase()}::${jornada}`
+}
+
 export function mergeSubmissionsIntoMatches(
   parsedMatches: ParsedMatch[],
   submissions: MatchSubmissionRow[]
 ): ParsedMatch[] {
-  const managersInXlsx = new Set(parsedMatches.map((m) => m.manager.trim().toLowerCase()))
-  const leftover = submissions
-    .filter((s) => !managersInXlsx.has(s.manager.trim().toLowerCase()))
-    .map(submissionToMatch)
-  return [...parsedMatches, ...leftover]
+  const submissionByKey = new Map<string, MatchSubmissionRow>()
+  for (const s of submissions) {
+    if (s.jornada === null) continue
+    submissionByKey.set(matchKey(s.manager, s.jornada), s)
+  }
+
+  const usedKeys = new Set<string>()
+  const merged: ParsedMatch[] = parsedMatches.map((m) => {
+    const key = matchKey(m.manager, m.jornada)
+    const submission = submissionByKey.get(key)
+    if (!submission) return m
+    usedKeys.add(key)
+    return submissionToMatch(submission)
+  })
+
+  for (const s of submissions) {
+    if (s.jornada === null) {
+      merged.push(submissionToMatch(s))
+      continue
+    }
+    const key = matchKey(s.manager, s.jornada)
+    if (!usedKeys.has(key)) {
+      merged.push(submissionToMatch(s))
+    }
+  }
+
+  return merged
 }
