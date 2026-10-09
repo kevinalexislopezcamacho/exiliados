@@ -24,10 +24,12 @@ const SELECT_WITH_ACCOUNT = `
   WHERE cm.id = ?
 `
 
-function canManageClan(user: { clan: string | null; username: string } | undefined, clan: string): boolean {
-  if (!user) return false
-  if (user.username === 'chicolinas') return true
-  return user.clan === clan
+// Cualquier capitán existente gestiona el roster de ambos clanes (Rayo y
+// Exiliados): ver, crear, editar, borrar y ascender/descender integrantes.
+// Esta función ya corre después de requireCaptain, así que solo hace falta
+// confirmar que hay un usuario autenticado.
+function canManageClan(user: { clan: string | null; username: string } | undefined, _clan: string): boolean {
+  return !!user
 }
 
 function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword?: number | null; role?: string | null }) {
@@ -313,8 +315,7 @@ async function moveMember(
   res: Response,
   fromClan: 'rayo' | 'exiliados',
   toClan: 'rayo' | 'exiliados',
-  errorIfWrongClan: string,
-  errorIfNotAllowed: string
+  errorIfWrongClan: string
 ) {
   const { id } = req.params
 
@@ -327,10 +328,6 @@ async function moveMember(
     }
     if (existing.clan !== fromClan) {
       return res.status(400).json({ success: false, error: errorIfWrongClan })
-    }
-    const isChicolinas = req.user?.username === 'chicolinas'
-    if (req.user?.clan !== fromClan && !isChicolinas) {
-      return res.status(403).json({ success: false, error: errorIfNotAllowed })
     }
 
     const tx = await db.transaction('write')
@@ -366,29 +363,15 @@ async function moveMember(
 }
 
 // POST /api/clan-members/:id/promote - Asciende un integrante de Rayo a Exiliados.
-// Solo un capitán de Rayo (o chicolinas) puede iniciar el ascenso.
+// Cualquier capitán existente puede iniciar el ascenso.
 router.post('/:id/promote', requireCaptain, (req, res) => {
-  moveMember(
-    req,
-    res,
-    'rayo',
-    'exiliados',
-    'Solo se puede ascender integrantes de Rayo',
-    'Solo un capitán de Rayo puede ascender integrantes a Exiliados'
-  )
+  moveMember(req, res, 'rayo', 'exiliados', 'Solo se puede ascender integrantes de Rayo')
 })
 
 // POST /api/clan-members/:id/demote - Desciende un integrante de Exiliados a Rayo.
-// Solo un capitán de Exiliados (o chicolinas) puede iniciar el descenso.
+// Cualquier capitán existente puede iniciar el descenso.
 router.post('/:id/demote', requireCaptain, (req, res) => {
-  moveMember(
-    req,
-    res,
-    'exiliados',
-    'rayo',
-    'Solo se puede descender integrantes de Exiliados',
-    'Solo un capitán de Exiliados puede descender integrantes a Rayo'
-  )
+  moveMember(req, res, 'exiliados', 'rayo', 'Solo se puede descender integrantes de Exiliados')
 })
 
 export default router

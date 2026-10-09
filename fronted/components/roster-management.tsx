@@ -206,25 +206,23 @@ export function RosterManagement({ clan, isSuperAdmin }: { clan: string; isSuper
         </div>
 
         <div className="flex items-center gap-2">
-          {isSuperAdmin && (
-            <div className="flex rounded-md border border-border overflow-hidden">
-              {(['rayo', 'exiliados'] as const).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => {
-                    resetForm()
-                    setShowForm(false)
-                    setActiveClan(c)
-                  }}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    activeClan === c ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                  }`}
-                >
-                  {clanLabel(c)}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {(['rayo', 'exiliados'] as const).map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  resetForm()
+                  setShowForm(false)
+                  setActiveClan(c)
+                }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeClan === c ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                }`}
+              >
+                {clanLabel(c)}
+              </button>
+            ))}
+          </div>
           <Button
             onClick={() => {
               resetForm()
