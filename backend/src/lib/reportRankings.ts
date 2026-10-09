@@ -39,10 +39,11 @@ interface ManagerAccumulator {
 }
 
 // Convierte el campo de texto libre "fecha de inicio" (ej. "05/08/26" o
-// "05/08/2026") de un reporte de batalla a {año, mes}. Devuelve null si está
-// vacío o no tiene ese formato — esos reportes simplemente no cuentan para
-// ningún mes en particular (pero sí para el histórico).
-function parseFechaToYearMonth(fecha: string): { year: number; month: number } | null {
+// "05/08/2026") de un reporte de batalla a un Date real. Devuelve null si
+// está vacío, no tiene ese formato, o es una fecha que no existe (ej.
+// 31/02) — esos reportes simplemente no cuentan para la ventana del último
+// mes (pero sí para el histórico).
+function parseFecha(fecha: string): Date | null {
   const match = fecha.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
   if (!match) return null
   const day = Number(match[1])
@@ -50,13 +51,18 @@ function parseFechaToYearMonth(fecha: string): { year: number; month: number } |
   let year = Number(match[3])
   if (year < 100) year += 2000
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return { year, month }
+  const date = new Date(year, month - 1, day)
+  if (date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date
 }
 
 export interface ReportRankingsOptions {
   // Si se pasa, solo se cuentan los reportes de batalla cuya "fecha de
-  // inicio" caiga en ese mes (en vez de sumar el historial completo).
-  onlyMonth?: { year: number; month: number }
+  // inicio" sea igual o posterior a esta fecha. Es una ventana MÓVIL de un
+  // mes (hoy menos un mes), no un mes de calendario: no "reinicia" de golpe
+  // el día 1, sino que cada reporte va saliendo solo de la ventana a medida
+  // que pasan 30-31 días desde su fecha.
+  onlyFromDate?: Date
 }
 
 // El ranking ya no se registra a mano: se recalcula sumando los managers de
@@ -70,10 +76,10 @@ export async function computeReportRankings(db: Client, options?: ReportRankings
     )
   ).rows as unknown as Array<{ clan: RankedClan; summary_json: string; fecha_inicio: string }>
 
-  const scopedRows = options?.onlyMonth
+  const scopedRows = options?.onlyFromDate
     ? reportRows.filter((row) => {
-        const ym = parseFechaToYearMonth(row.fecha_inicio ?? '')
-        return ym !== null && ym.year === options.onlyMonth!.year && ym.month === options.onlyMonth!.month
+        const d = parseFecha(row.fecha_inicio ?? '')
+        return d !== null && d >= options.onlyFromDate!
       })
     : reportRows
 

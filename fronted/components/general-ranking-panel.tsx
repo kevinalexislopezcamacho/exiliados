@@ -26,15 +26,9 @@ function scoreColor(score: number) {
   return 'text-foreground'
 }
 
-const MONTH_NAMES = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-]
-
 export function GeneralRankingPanel() {
   const [entries, setEntries] = useState<GeneralEntry[] | null>(null)
   const [period, setPeriod] = useState<'all' | 'month'>('all')
-  const currentMonthLabel = MONTH_NAMES[new Date().getMonth()]
 
   useEffect(() => {
     let active = true
@@ -63,7 +57,7 @@ export function GeneralRankingPanel() {
         <div className="flex rounded-md border border-border overflow-hidden">
           {[
             { key: 'all' as const, label: 'Histórico' },
-            { key: 'month' as const, label: 'Este mes' },
+            { key: 'month' as const, label: 'Último mes' },
           ].map((opt) => (
             <button
               key={opt.key}
@@ -80,7 +74,7 @@ export function GeneralRankingPanel() {
       <p className="text-xs text-muted-foreground mb-4">
         Rayo + Exiliados combinados — puntaje compuesto: 40% efectividad de liga, 25% eficiencia de armado, 20% valor
         de equipo, 15% meta cumplida
-        {period === 'month' && ` · solo batallas con fecha de inicio en ${currentMonthLabel}`}
+        {period === 'month' && ' · solo batallas con fecha de inicio en los últimos 30 días; se va actualizando solo, día a día'}
       </p>
 
       {entries === null ? (
@@ -92,7 +86,7 @@ export function GeneralRankingPanel() {
       ) : top.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border/50 rounded-lg">
           {period === 'month'
-            ? `Ningún reporte de batalla tiene fecha de inicio en ${currentMonthLabel} todavía. Editá un reporte para agregarle la fecha.`
+            ? 'Ningún reporte de batalla tiene fecha de inicio en el último mes todavía. Editá un reporte para agregarle la fecha.'
             : 'Sube reportes de jornadas o de armado para ver el ranking general'}
         </p>
       ) : (

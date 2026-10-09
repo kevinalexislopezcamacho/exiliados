@@ -31,16 +31,22 @@ router.get('/squads', requireCaptain, async (_req, res) => {
 
 // GET /api/rankings/general?period=month - Quinto ranking: combina Rayo +
 // Exiliados (solo capitanes). Sin ?period= (o period=all) es el histórico
-// completo; period=month filtra la parte de jornadas al mes en curso, según
-// la fecha de inicio de cada batalla.
+// completo; period=month filtra la parte de jornadas a una ventana MÓVIL de
+// un mes (hoy menos un mes), no al mes de calendario — cada reporte va
+// saliendo solo de la ventana al cumplir un mes desde su fecha de inicio, en
+// vez de "reiniciar" todo de golpe el día 1.
 router.get('/general', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
-    const now = new Date()
-    const options =
-      req.query.period === 'month'
-        ? { onlyMonth: { year: now.getFullYear(), month: now.getMonth() + 1 } }
-        : undefined
+    let options: { onlyFromDate: Date } | undefined
+    if (req.query.period === 'month') {
+      // Medianoche de hoy menos un mes: así cualquier fecha de ese día
+      // cuenta completo, en vez de quedar afuera por la hora exacta actual.
+      const cutoff = new Date()
+      cutoff.setHours(0, 0, 0, 0)
+      cutoff.setMonth(cutoff.getMonth() - 1)
+      options = { onlyFromDate: cutoff }
+    }
     const data = await computeGeneralRanking(db, options)
     res.json({ success: true, data })
   } catch (error) {

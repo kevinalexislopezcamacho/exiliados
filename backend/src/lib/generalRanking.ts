@@ -25,10 +25,10 @@ export interface GeneralRankingEntry {
 // calcula el mismo puntaje compuesto 0-100 que se usa en los rankings por
 // clan, para decidir quién es "el mejor" de verdad entre todos.
 //
-// options.onlyMonth filtra la parte de jornadas a un mes puntual (según la
-// fecha de inicio de cada batalla). El armado no tiene fecha propia por
-// reporte, así que esa parte del puntaje sigue siendo siempre "estado
-// actual" tanto en la vista histórica como en la mensual.
+// options.onlyFromDate filtra la parte de jornadas a una ventana móvil de un
+// mes (según la fecha de inicio de cada batalla). El armado no tiene fecha
+// propia por reporte, así que esa parte del puntaje sigue siendo siempre
+// "estado actual" tanto en la vista histórica como en la del último mes.
 export async function computeGeneralRanking(
   db: Client,
   options?: ReportRankingsOptions
@@ -58,11 +58,11 @@ export async function computeGeneralRanking(
     for (const entry of armado[clan]) {
       const key = slugifyUsername(entry.usuario)
       const existing = byName.get(key)
-      // En la vista mensual (onlyMonth), el armado solo complementa a
-      // quienes ya jugaron ese mes — no crea entradas nuevas solo porque
-      // tengan un valor de equipo viejo, o el "top del mes" terminaría
-      // mostrando gente sin actividad ese mes.
-      if (!existing && options?.onlyMonth) continue
+      // En la vista del último mes (onlyFromDate), el armado solo
+      // complementa a quienes ya jugaron en esa ventana — no crea entradas
+      // nuevas solo porque tengan un valor de equipo viejo, o el "top del
+      // último mes" terminaría mostrando gente sin actividad reciente.
+      if (!existing && options?.onlyFromDate) continue
       const target = existing ?? {
         name: entry.usuario,
         clan,
