@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ChevronDown, ChevronUp, Trophy, Wifi, WifiOff } from 'lucide-react'
 import { clanLabel } from '@/lib/clans'
+import { ManagerProfilePopup } from '@/components/manager-profile-popup'
 
 const POLL_INTERVAL_MS = 10000
 
@@ -122,9 +123,11 @@ export function RankingsPanel() {
                         {index + 1}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {entry.flag} {entry.name}
-                        </p>
+                        <ManagerProfilePopup clan={clan} name={entry.name}>
+                          <button className="text-sm font-medium text-foreground truncate hover:text-primary hover:underline text-left block">
+                            {entry.flag} {entry.name}
+                          </button>
+                        </ManagerProfilePopup>
                         <p className="text-xs text-muted-foreground">
                           {entry.v}V - {entry.e}E - {entry.d}D · {entry.gf}-{entry.gc} · {entry.pts} pts
                           {entry.valorActual !== null && ` · ${Math.round(entry.valorActual)}M`}

@@ -38,18 +38,48 @@ interface ManagerAccumulator {
   gc: number
 }
 
+// Convierte el campo de texto libre "fecha de inicio" (ej. "05/08/26" o
+// "05/08/2026") de un reporte de batalla a {año, mes}. Devuelve null si está
+// vacío o no tiene ese formato — esos reportes simplemente no cuentan para
+// ningún mes en particular (pero sí para el histórico).
+function parseFechaToYearMonth(fecha: string): { year: number; month: number } | null {
+  const match = fecha.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (!match) return null
+  const day = Number(match[1])
+  const month = Number(match[2])
+  let year = Number(match[3])
+  if (year < 100) year += 2000
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return { year, month }
+}
+
+export interface ReportRankingsOptions {
+  // Si se pasa, solo se cuentan los reportes de batalla cuya "fecha de
+  // inicio" caiga en ese mes (en vez de sumar el historial completo).
+  onlyMonth?: { year: number; month: number }
+}
+
 // El ranking ya no se registra a mano: se recalcula sumando los managers de
 // todos los reportes de batalla (.xlsx) subidos para cada clan, y se cruza
 // con el armado (valor/eficiencia) y la meta para armar un puntaje
 // compuesto — el mismo criterio que usa el Ranking General.
-export async function computeReportRankings(db: Client): Promise<RankingsData> {
+export async function computeReportRankings(db: Client, options?: ReportRankingsOptions): Promise<RankingsData> {
   const reportRows = (
-    await db.execute(`SELECT clan, summary_json FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`)
-  ).rows as unknown as Array<{ clan: RankedClan; summary_json: string }>
+    await db.execute(
+      `SELECT clan, summary_json, fecha_inicio FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`
+    )
+  ).rows as unknown as Array<{ clan: RankedClan; summary_json: string; fecha_inicio: string }>
+
+  const scopedRows = options?.onlyMonth
+    ? reportRows.filter((row) => {
+        const ym = parseFechaToYearMonth(row.fecha_inicio ?? '')
+        return ym !== null && ym.year === options.onlyMonth!.year && ym.month === options.onlyMonth!.month
+      })
+    : reportRows
 
   const totals = new Map<string, ManagerAccumulator>()
 
-  for (const row of reportRows) {
+  for (const row of scopedRows) {
     const summary = JSON.parse(row.summary_json) as { managers?: ManagerAccumulator[] }
     for (const m of summary.managers ?? []) {
       // Agrupa por versión "slug": el mismo manager puede estar escrito

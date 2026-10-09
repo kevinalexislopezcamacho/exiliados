@@ -108,6 +108,11 @@ export async function initializeDatabase() {
   if (!clanMemberColumns.some((col) => col.name === 'member_id')) {
     await db.execute(`ALTER TABLE clan_members ADD COLUMN member_id INTEGER REFERENCES members(id)`)
   }
+  // Notas libres que un capitán le agrega a un integrante (ej. acuerdos,
+  // historial, observaciones), visibles en el popup de su perfil.
+  if (!clanMemberColumns.some((col) => col.name === 'notes')) {
+    await db.execute(`ALTER TABLE clan_members ADD COLUMN notes TEXT NOT NULL DEFAULT ''`)
+  }
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS battle_results (

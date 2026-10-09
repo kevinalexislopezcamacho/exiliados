@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Trophy } from "lucide-react"
 import { clanLabel } from "@/lib/clans"
+import { ManagerProfilePopup } from "@/components/manager-profile-popup"
 
 interface GeneralEntry {
   name: string
@@ -25,12 +26,21 @@ function scoreColor(score: number) {
   return 'text-foreground'
 }
 
+const MONTH_NAMES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+]
+
 export function GeneralRankingPanel() {
   const [entries, setEntries] = useState<GeneralEntry[] | null>(null)
+  const [period, setPeriod] = useState<'all' | 'month'>('all')
+  const currentMonthLabel = MONTH_NAMES[new Date().getMonth()]
 
   useEffect(() => {
     let active = true
-    fetch("/api/rankings/general")
+    setEntries(null)
+    const qs = period === 'month' ? '?period=month' : ''
+    fetch(`/api/rankings/general${qs}`)
       .then((res) => res.json())
       .then((result) => {
         if (active && result.success) setEntries(result.data)
@@ -39,19 +49,38 @@ export function GeneralRankingPanel() {
     return () => {
       active = false
     }
-  }, [])
+  }, [period])
 
   const top = entries?.slice(0, 10) ?? []
 
   return (
     <Card className="p-6 border-primary/20">
-      <div className="flex items-center gap-2 mb-1">
-        <Trophy className="w-5 h-5 text-primary" />
-        <h3 className="font-bold text-lg text-primary">Ranking General</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-primary" />
+          <h3 className="font-bold text-lg text-primary">Ranking General</h3>
+        </div>
+        <div className="flex rounded-md border border-border overflow-hidden">
+          {[
+            { key: 'all' as const, label: 'Histórico' },
+            { key: 'month' as const, label: 'Este mes' },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setPeriod(opt.key)}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                period === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         Rayo + Exiliados combinados — puntaje compuesto: 40% efectividad de liga, 25% eficiencia de armado, 20% valor
         de equipo, 15% meta cumplida
+        {period === 'month' && ` · solo batallas con fecha de inicio en ${currentMonthLabel}`}
       </p>
 
       {entries === null ? (
@@ -62,7 +91,9 @@ export function GeneralRankingPanel() {
         </div>
       ) : top.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border/50 rounded-lg">
-          Sube reportes de jornadas o de armado para ver el ranking general
+          {period === 'month'
+            ? `Ningún reporte de batalla tiene fecha de inicio en ${currentMonthLabel} todavía. Editá un reporte para agregarle la fecha.`
+            : 'Sube reportes de jornadas o de armado para ver el ranking general'}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -85,7 +116,17 @@ export function GeneralRankingPanel() {
                 <tr key={entry.name} className="border-b border-border/50">
                   <td className="px-3 py-2 font-bold text-primary">{i + 1}</td>
                   <td className="px-3 py-2 font-medium">
-                    {entry.flag} {entry.name}
+                    {entry.clan ? (
+                      <ManagerProfilePopup clan={entry.clan} name={entry.name}>
+                        <button className="hover:text-primary hover:underline text-left">
+                          {entry.flag} {entry.name}
+                        </button>
+                      </ManagerProfilePopup>
+                    ) : (
+                      <>
+                        {entry.flag} {entry.name}
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{entry.clan ? clanLabel(entry.clan) : '—'}</td>
                   <td className={`px-3 py-2 text-center font-bold ${scoreColor(entry.score)}`}>{entry.score}</td>

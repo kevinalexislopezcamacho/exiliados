@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Coins } from "lucide-react"
 import { clanLabel } from "@/lib/clans"
+import { ManagerProfilePopup } from "@/components/manager-profile-popup"
 
 interface SquadRankingEntry {
   usuario: string
@@ -62,7 +63,11 @@ export function SquadRankingsPanel() {
                     >
                       <span className="w-6 text-center text-sm font-bold text-primary">{index + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{entry.usuario}</p>
+                        <ManagerProfilePopup clan={clan} name={entry.usuario}>
+                          <button className="text-sm font-medium text-foreground truncate hover:text-primary hover:underline text-left block">
+                            {entry.usuario}
+                          </button>
+                        </ManagerProfilePopup>
                         <p className="text-xs text-muted-foreground">
                           {entry.valorActual !== null ? `${Math.round(entry.valorActual)}M` : '—'} · Eficiencia{' '}
                           {entry.eficiencia !== null ? `${Math.round(entry.eficiencia * 100)}%` : '—'} · {entry.compras ?? 0} compras /{' '}

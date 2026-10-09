@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { clanLabel } from "@/lib/clans"
+import { ManagerProfilePopup } from "@/components/manager-profile-popup"
 import { Users } from "lucide-react"
 
 interface ClanMember {
@@ -76,28 +77,27 @@ export function ClanRoster({ clan }: { clan: string }) {
       ) : members.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center gap-3 rounded-lg bg-card/50 border border-border/30 hover:border-primary/40 transition-colors px-3 py-2.5"
-            >
-              <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                {member.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate flex items-center gap-1.5">
-                  <span className="truncate">{member.name}</span>
-                  {member.flag && <span aria-hidden="true">{member.flag}</span>}
-                </p>
-                {member.title && (
-                  <Badge
-                    variant="outline"
-                    className="mt-0.5 text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
-                  >
-                    {member.title}
-                  </Badge>
-                )}
-              </div>
-            </div>
+            <ManagerProfilePopup key={member.id} clan={clan} name={member.name}>
+              <button className="flex items-center gap-3 rounded-lg bg-card/50 border border-border/30 hover:border-primary/40 transition-colors px-3 py-2.5 text-left w-full">
+                <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate flex items-center gap-1.5">
+                    <span className="truncate">{member.name}</span>
+                    {member.flag && <span aria-hidden="true">{member.flag}</span>}
+                  </p>
+                  {member.title && (
+                    <Badge
+                      variant="outline"
+                      className="mt-0.5 text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
+                    >
+                      {member.title}
+                    </Badge>
+                  )}
+                </div>
+              </button>
+            </ManagerProfilePopup>
           ))}
         </div>
       ) : (

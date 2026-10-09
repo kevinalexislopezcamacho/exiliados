@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { getDatabase, hashPassword, slugifyUsername, ROSTER_DEFAULT_PASSWORD } from '../db'
-import { requireCaptain } from '../middleware/auth'
+import { requireAuth, requireCaptain } from '../middleware/auth'
+import { computeGeneralRanking } from '../lib/generalRanking'
 
 const router = Router()
 
@@ -14,10 +15,11 @@ interface ClanMemberRow {
   title: string
   sort_order: number
   member_id: number | null
+  notes: string
 }
 
 const SELECT_WITH_ACCOUNT = `
-  SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id,
+  SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id, cm.notes,
          m.username as username, m.has_password as hasPassword, m.role as role
   FROM clan_members cm
   LEFT JOIN members m ON m.id = cm.member_id
@@ -42,6 +44,7 @@ function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword
     username: row.username ?? null,
     hasPassword: row.hasPassword ? Boolean(row.hasPassword) : false,
     role: row.role ?? null,
+    notes: row.notes ?? '',
   }
 }
 
@@ -75,6 +78,80 @@ router.get('/', requireCaptain, async (req, res) => {
     res.json({ success: true, data: rows.map(toApiShape) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error obteniendo el roster' })
+  }
+})
+
+// GET /api/clan-members/profile?clan=X&name=Y - Info + estadísticas (del
+// Ranking General) + notas de un integrante, para el popup de "ver manager".
+// Cualquier usuario logueado puede verlo (no solo capitanes).
+router.get('/profile', requireAuth, async (req, res) => {
+  try {
+    const clan = String(req.query.clan ?? '')
+    const name = String(req.query.name ?? '')
+    if (!MANAGEABLE_CLANS.has(clan) || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Debes indicar clan y nombre' })
+    }
+
+    const db = getDatabase()
+    const targetSlug = slugifyUsername(name)
+    const rows = (
+      await db.execute({ sql: 'SELECT * FROM clan_members WHERE clan = ?', args: [clan] })
+    ).rows as unknown as ClanMemberRow[]
+    const row = rows.find((r) => slugifyUsername(r.name) === targetSlug)
+    if (!row) {
+      return res.status(404).json({ success: false, error: 'Integrante no encontrado' })
+    }
+
+    let account: { username: string | null; hasPassword: number | null; role: string | null } = {
+      username: null,
+      hasPassword: null,
+      role: null,
+    }
+    if (row.member_id) {
+      const m = (
+        await db.execute({ sql: 'SELECT username, has_password, role FROM members WHERE id = ?', args: [row.member_id] })
+      ).rows[0] as unknown as { username: string; has_password: number; role: string } | undefined
+      if (m) account = { username: m.username, hasPassword: m.has_password, role: m.role }
+    }
+
+    const ranking = await computeGeneralRanking(db)
+    const stats = ranking.find((e) => slugifyUsername(e.name) === targetSlug) ?? null
+
+    res.json({ success: true, data: { ...toApiShape({ ...row, ...account }), stats } })
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error obteniendo el perfil' })
+  }
+})
+
+// PUT /api/clan-members/profile - Guarda las notas de un integrante (solo
+// capitanes). Se identifica por clan+nombre, igual que el GET de arriba.
+router.put('/profile', requireCaptain, async (req, res) => {
+  try {
+    const { clan, name, notes } = req.body ?? {}
+    if (!MANAGEABLE_CLANS.has(clan) || !String(name ?? '').trim()) {
+      return res.status(400).json({ success: false, error: 'Debes indicar clan y nombre' })
+    }
+
+    const db = getDatabase()
+    const targetSlug = slugifyUsername(String(name))
+    const rows = (
+      await db.execute({ sql: 'SELECT id, name FROM clan_members WHERE clan = ?', args: [clan] })
+    ).rows as unknown as Array<{ id: number; name: string }>
+    const row = rows.find((r) => slugifyUsername(r.name) === targetSlug)
+    if (!row) {
+      return res.status(404).json({ success: false, error: 'Integrante no encontrado' })
+    }
+
+    await db.execute({ sql: 'UPDATE clan_members SET notes = ? WHERE id = ?', args: [String(notes ?? ''), row.id] })
+
+    const updated = (await db.execute({ sql: SELECT_WITH_ACCOUNT, args: [row.id] })).rows[0] as unknown as ClanMemberRow & {
+      username: string | null
+      hasPassword: number | null
+      role: string | null
+    }
+    res.json({ success: true, data: toApiShape(updated) })
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error guardando las notas' })
   }
 })
 

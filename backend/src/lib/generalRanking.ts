@@ -1,7 +1,7 @@
 import type { Client } from '@libsql/client'
 import { slugifyUsername } from '../db'
 import { RANKED_CLANS, type RankedClan } from './clanTypes'
-import { computeReportRankings } from './reportRankings'
+import { computeReportRankings, type ReportRankingsOptions } from './reportRankings'
 import { computeSquadRankings } from './squadRankings'
 import { compositeScore, normalize } from './compositeScore'
 import type { MetaCompliance } from './metaTracking'
@@ -24,8 +24,16 @@ export interface GeneralRankingEntry {
 // efectividad, meta) con armado (valor de equipo, eficiencia) por manager, y
 // calcula el mismo puntaje compuesto 0-100 que se usa en los rankings por
 // clan, para decidir quién es "el mejor" de verdad entre todos.
-export async function computeGeneralRanking(db: Client): Promise<GeneralRankingEntry[]> {
-  const jornadas = await computeReportRankings(db)
+//
+// options.onlyMonth filtra la parte de jornadas a un mes puntual (según la
+// fecha de inicio de cada batalla). El armado no tiene fecha propia por
+// reporte, así que esa parte del puntaje sigue siendo siempre "estado
+// actual" tanto en la vista histórica como en la mensual.
+export async function computeGeneralRanking(
+  db: Client,
+  options?: ReportRankingsOptions
+): Promise<GeneralRankingEntry[]> {
+  const jornadas = await computeReportRankings(db, options)
   const armado = await computeSquadRankings(db)
 
   const byName = new Map<string, GeneralRankingEntry>()
@@ -49,7 +57,13 @@ export async function computeGeneralRanking(db: Client): Promise<GeneralRankingE
     }
     for (const entry of armado[clan]) {
       const key = slugifyUsername(entry.usuario)
-      const existing = byName.get(key) ?? {
+      const existing = byName.get(key)
+      // En la vista mensual (onlyMonth), el armado solo complementa a
+      // quienes ya jugaron ese mes — no crea entradas nuevas solo porque
+      // tengan un valor de equipo viejo, o el "top del mes" terminaría
+      // mostrando gente sin actividad ese mes.
+      if (!existing && options?.onlyMonth) continue
+      const target = existing ?? {
         name: entry.usuario,
         clan,
         flag: '',
@@ -62,11 +76,11 @@ export async function computeGeneralRanking(db: Client): Promise<GeneralRankingE
         meta: null,
         score: 0,
       }
-      existing.valorActual = entry.valorActual
-      existing.eficiencia = entry.eficiencia
-      existing.compras = entry.compras
-      if (!existing.clan) existing.clan = clan
-      byName.set(key, existing)
+      target.valorActual = entry.valorActual
+      target.eficiencia = entry.eficiencia
+      target.compras = entry.compras
+      if (!target.clan) target.clan = clan
+      byName.set(key, target)
     }
   }
 

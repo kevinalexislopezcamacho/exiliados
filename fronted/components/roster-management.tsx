@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { clanLabel } from '@/lib/clans'
+import { ManagerProfilePopup } from '@/components/manager-profile-popup'
 import { Plus, X, Edit2, Trash, ArrowUpCircle, ArrowDownCircle, Users, Crown, ShieldOff } from 'lucide-react'
 
 interface RosterMember {
@@ -393,32 +394,36 @@ export function RosterManagement({ clan }: { clan: string }) {
               key={member.id}
               className="flex items-start gap-3 rounded-lg bg-card/50 border border-border/30 hover:border-primary/40 transition-colors px-3 py-2.5"
             >
-              <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                {member.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground truncate">{member.name}</p>
-                {member.username && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    @{member.username} {member.hasPassword ? '' : '· sin contraseña aún'}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {member.role === 'captain' && (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-primary/15 text-primary border-primary/30 font-normal">
-                      Capitán
-                    </Badge>
-                  )}
-                  {member.title && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
-                    >
-                      {member.title}
-                    </Badge>
-                  )}
-                </div>
-              </div>
+              <ManagerProfilePopup clan={activeClan} name={member.name}>
+                <button className="flex items-start gap-3 min-w-0 flex-1 text-left">
+                  <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                    {member.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground truncate">{member.name}</p>
+                    {member.username && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        @{member.username} {member.hasPassword ? '' : '· sin contraseña aún'}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {member.role === 'captain' && (
+                        <Badge className="text-[10px] px-1.5 py-0 bg-primary/15 text-primary border-primary/30 font-normal">
+                          Capitán
+                        </Badge>
+                      )}
+                      {member.title && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 border-primary/30 text-muted-foreground font-normal"
+                        >
+                          {member.title}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              </ManagerProfilePopup>
               <div className="flex flex-col gap-1 shrink-0">
                 {member.username && (
                   member.role === 'captain' ? (

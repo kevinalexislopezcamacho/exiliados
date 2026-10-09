@@ -29,11 +29,19 @@ router.get('/squads', requireCaptain, async (_req, res) => {
   }
 })
 
-// GET /api/rankings/general - Quinto ranking: combina Rayo + Exiliados (solo capitanes)
-router.get('/general', requireCaptain, async (_req, res) => {
+// GET /api/rankings/general?period=month - Quinto ranking: combina Rayo +
+// Exiliados (solo capitanes). Sin ?period= (o period=all) es el histórico
+// completo; period=month filtra la parte de jornadas al mes en curso, según
+// la fecha de inicio de cada batalla.
+router.get('/general', requireCaptain, async (req, res) => {
   try {
     const db = getDatabase()
-    const data = await computeGeneralRanking(db)
+    const now = new Date()
+    const options =
+      req.query.period === 'month'
+        ? { onlyMonth: { year: now.getFullYear(), month: now.getMonth() + 1 } }
+        : undefined
+    const data = await computeGeneralRanking(db, options)
     res.json({ success: true, data })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error fetching general ranking' })
