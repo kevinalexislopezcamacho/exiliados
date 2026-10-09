@@ -101,6 +101,7 @@ export default function LoginPage() {
                   <Input
                     id="new-password"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="Elige una contraseña"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -117,6 +118,7 @@ export default function LoginPage() {
                   <Input
                     id="confirm-password"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="Repite la contraseña"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -156,6 +158,7 @@ export default function LoginPage() {
                   <Input
                     id="username"
                     type="text"
+                    autoComplete="username"
                     placeholder="Tu nick"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -171,6 +174,7 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type="password"
+                    autoComplete="current-password"
                     placeholder="Tu contraseña"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

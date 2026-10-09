@@ -64,7 +64,14 @@ router.post('/login', async (req, res) => {
       return res.json({ success: false, needsPasswordSetup: true, full_name: user.full_name })
     }
 
-    if (!password || !verifyPassword(password, user.password)) {
+    // Recorta espacios invisibles al principio/final (típico de teclados de
+    // celular o autocompletado del navegador) para que no cuenten como
+    // parte de la contraseña: si no se hiciera esto en set-password también,
+    // alguien podía terminar con una contraseña que "funciona" en su
+    // celular (que guarda el espacio de más) pero falla para cualquier otra
+    // persona que la escriba tal cual se la pasaron.
+    const trimmedPassword = typeof password === 'string' ? password.trim() : password
+    if (!trimmedPassword || !verifyPassword(trimmedPassword, user.password)) {
       return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' })
     }
 
@@ -97,7 +104,11 @@ router.post('/set-password', async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Usuario y contraseña requeridos' })
     }
-    if (String(password).length < 4) {
+    // Ver el comentario en /login: se recorta para que un espacio invisible
+    // de más (muy común al escribir desde el celular) no quede guardado
+    // como parte de la contraseña real.
+    const trimmedPassword = String(password).trim()
+    if (trimmedPassword.length < 4) {
       return res.status(400).json({ success: false, error: 'La contraseña debe tener al menos 4 caracteres' })
     }
 
@@ -115,7 +126,7 @@ router.post('/set-password', async (req, res) => {
 
     await db.execute({
       sql: 'UPDATE members SET password = ?, has_password = 1 WHERE id = ?',
-      args: [hashPassword(password), user.id],
+      args: [hashPassword(trimmedPassword), user.id],
     })
 
     const { token, data } = await createSession(db, { ...user, has_password: 1 })
