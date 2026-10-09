@@ -55,7 +55,7 @@ const TITLE_SUGGESTIONS = [
   'Ex sub 21',
 ]
 
-export function RosterManagement({ clan, isSuperAdmin }: { clan: string; isSuperAdmin: boolean }) {
+export function RosterManagement({ clan }: { clan: string }) {
   const [activeClan, setActiveClan] = useState(clan)
   const [members, setMembers] = useState<RosterMember[]>([])
   const [loading, setLoading] = useState(true)
@@ -363,7 +363,7 @@ export function RosterManagement({ clan, isSuperAdmin }: { clan: string; isSuper
                 </div>
               </div>
               <div className="flex flex-col gap-1 shrink-0">
-                {isSuperAdmin && member.username && (
+                {member.username && (
                   member.role === 'captain' ? (
                     <button
                       onClick={() => handleSetRole(member, 'member')}

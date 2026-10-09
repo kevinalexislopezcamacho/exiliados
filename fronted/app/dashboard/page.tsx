@@ -204,9 +204,10 @@ function CaptainDashboard({ user }: { user: any }) {
       {/* Ranking general: Rayo + Exiliados combinados */}
       <GeneralRankingPanel />
 
-      {/* Roster completo del clan: aquí el capitán puede editar/agregar/borrar
-          integrantes y, si es de Rayo, ascenderlos a Exiliados */}
-      <RosterManagement clan={user.clan} isSuperAdmin={user.username === 'chicolinas'} />
+      {/* Roster de ambos clanes: cualquier capitán puede ver/editar/agregar/
+          borrar integrantes, ascenderlos/descenderlos de clan, y subirlos/
+          bajarlos de rango (miembro <-> capitán) */}
+      <RosterManagement clan={user.clan} />
 
       {/* Management Sections */}
       <MembersManagement />

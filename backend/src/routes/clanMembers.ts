@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { getDatabase, hashPassword, slugifyUsername, ROSTER_DEFAULT_PASSWORD } from '../db'
-import { requireCaptain, requireSuperAdmin } from '../middleware/auth'
+import { requireCaptain } from '../middleware/auth'
 
 const router = Router()
 
@@ -237,9 +237,9 @@ router.put('/:id', requireCaptain, async (req, res) => {
 })
 
 // POST /api/clan-members/:id/set-role - Sube o baja de rango (member <-> captain)
-// a un integrante que ya tiene cuenta de acceso. Solo chicolinas puede hacerlo:
-// dar el rol de capitán es más delicado que solo mover a alguien entre clanes.
-router.post('/:id/set-role', requireSuperAdmin, async (req, res) => {
+// a un integrante que ya tiene cuenta de acceso. Cualquier capitán existente
+// puede hacerlo.
+router.post('/:id/set-role', requireCaptain, async (req, res) => {
   const { id } = req.params
   const { role } = req.body ?? {}
 
