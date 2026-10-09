@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { clanLabel } from '@/lib/clans'
-import { ArrowLeft, Trash } from 'lucide-react'
+import { ArrowLeft, Edit2, Trash, X } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AccessDeniedDialog } from '@/components/access-denied-dialog'
 import { BattleMatchForm, type MatchSubmission } from '@/components/battle-match-form'
@@ -80,6 +81,9 @@ interface BattleReportDetail {
   uploadedBy: string | null
   createdAt: string
   status: string
+  torneo: string
+  fechaInicio: string
+  fechaFin: string
   summary: BattleSummary
   matches: Match[]
   submissions?: MatchSubmission[]
@@ -106,8 +110,12 @@ export default function BattleReportDetailPage() {
   const [loadingReport, setLoadingReport] = useState(true)
   const [error, setError] = useState('')
   const [locked, setLocked] = useState(false)
+  const [showEditForm, setShowEditForm] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editForm, setEditForm] = useState({ title: '', opponent: '', torneo: '', fechaInicio: '', fechaFin: '' })
 
   const isCaptain = user?.role === 'captain'
+  const canManageReport = !!report && (user?.username === 'chicolinas' || report.clan === user?.clan)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -144,6 +152,40 @@ export default function BattleReportDetailPage() {
     if (result.success) router.push('/dashboard/battles')
   }
 
+  const openEditForm = () => {
+    if (!report) return
+    setEditForm({
+      title: report.title,
+      opponent: report.opponent,
+      torneo: report.torneo,
+      fechaInicio: report.fechaInicio,
+      fechaFin: report.fechaFin,
+    })
+    setShowEditForm(true)
+  }
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!report) return
+    setSavingEdit(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/battle-reports/${report.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      })
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error)
+      setReport((prev) => (prev ? { ...prev, ...result.data } : prev))
+      setShowEditForm(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error guardando los cambios')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -163,19 +205,34 @@ export default function BattleReportDetailPage() {
               </Button>
             </Link>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-primary truncate">{report?.title ?? 'Reporte de Batalla'}</h1>
+              <h1 className="text-2xl font-bold text-primary truncate">
+                {report?.torneo ? `${report.torneo} - ` : ''}
+                {report?.title ?? 'Reporte de Batalla'}
+              </h1>
               {report && (
                 <p className="text-sm text-muted-foreground">
                   Clan {clanLabel(report.clan)} vs {report.opponent || '—'}
+                  {(report.fechaInicio || report.fechaFin) && (
+                    <>
+                      {' · '}
+                      {report.fechaInicio || '—'}
+                      {report.fechaFin ? ` al ${report.fechaFin}` : ''}
+                    </>
+                  )}
                 </p>
               )}
             </div>
           </div>
 
-          {report && isCaptain && (
-            <Button onClick={handleDelete} variant="outline" className="gap-2 border-destructive/40 hover:bg-destructive/10 text-destructive">
-              <Trash className="w-4 h-4" /> Eliminar
-            </Button>
+          {report && isCaptain && canManageReport && (
+            <div className="flex gap-2">
+              <Button onClick={openEditForm} variant="outline" className="gap-2 border-primary/40 hover:bg-primary/10">
+                <Edit2 className="w-4 h-4" /> Editar
+              </Button>
+              <Button onClick={handleDelete} variant="outline" className="gap-2 border-destructive/40 hover:bg-destructive/10 text-destructive">
+                <Trash className="w-4 h-4" /> Eliminar
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -190,6 +247,71 @@ export default function BattleReportDetailPage() {
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">
             {error}
           </div>
+        )}
+
+        {showEditForm && report && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg text-primary">Editar reporte</h3>
+              <button onClick={() => setShowEditForm(false)} className="p-1 hover:bg-muted rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Título</label>
+                  <Input
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    placeholder="Ej. EXI vs ALT"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Rival</label>
+                  <Input
+                    value={editForm.opponent}
+                    onChange={(e) => setEditForm({ ...editForm, opponent: e.target.value })}
+                    placeholder="Ej. ALT"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Torneo</label>
+                  <Input
+                    value={editForm.torneo}
+                    onChange={(e) => setEditForm({ ...editForm, torneo: e.target.value })}
+                    placeholder="Ej. KT"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Fecha de inicio</label>
+                    <Input
+                      value={editForm.fechaInicio}
+                      onChange={(e) => setEditForm({ ...editForm, fechaInicio: e.target.value })}
+                      placeholder="05/08/26"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Fecha de fin</label>
+                    <Input
+                      value={editForm.fechaFin}
+                      onChange={(e) => setEditForm({ ...editForm, fechaFin: e.target.value })}
+                      placeholder="07/08/26"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={savingEdit}>
+                  {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowEditForm(false)}>
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          </Card>
         )}
 
         {loadingReport || !report ? (

@@ -36,6 +36,9 @@ interface BattleReportRow {
   matches_json: string
   slots_json: string
   status: string
+  torneo: string
+  fecha_inicio: string
+  fecha_fin: string
   created_at: string
 }
 
@@ -50,6 +53,9 @@ function toListItem(row: BattleReportRow) {
     uploadedBy: row.uploaded_by,
     createdAt: row.created_at,
     status: row.status,
+    torneo: row.torneo,
+    fechaInicio: row.fecha_inicio,
+    fechaFin: row.fecha_fin,
     summary: JSON.parse(row.summary_json),
   }
 }
@@ -597,6 +603,48 @@ router.post('/', requireCaptain, (req, res) => {
       res.status(400).json({ success: false, error: error.message || 'No se pudo analizar el archivo' })
     }
   })
+})
+
+// PUT /api/battle-reports/:id - Edita título, rival, torneo y fechas de un
+// reporte (solo el capitán del mismo clan del reporte, o chicolinas). No
+// toca los partidos/resultados: eso solo cambia subiendo un Excel nuevo.
+router.put('/:id', requireCaptain, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const existing = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow | undefined
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Reporte no encontrado' })
+    }
+    if (req.user?.username !== 'chicolinas' && existing.clan !== req.user?.clan) {
+      return res.status(403).json({ success: false, error: 'Solo el capitán de ese clan puede editar este reporte' })
+    }
+
+    const { title, opponent, torneo, fechaInicio, fechaFin } = req.body ?? {}
+    const trimmedTitle = title !== undefined ? String(title).trim() : existing.title
+    if (!trimmedTitle) {
+      return res.status(400).json({ success: false, error: 'El título no puede quedar vacío' })
+    }
+
+    await db.execute({
+      sql: `UPDATE battle_reports SET title = ?, opponent = ?, torneo = ?, fecha_inicio = ?, fecha_fin = ? WHERE id = ?`,
+      args: [
+        trimmedTitle,
+        opponent !== undefined ? String(opponent).trim() : existing.opponent,
+        torneo !== undefined ? String(torneo).trim() : existing.torneo,
+        fechaInicio !== undefined ? String(fechaInicio).trim() : existing.fecha_inicio,
+        fechaFin !== undefined ? String(fechaFin).trim() : existing.fecha_fin,
+        req.params.id,
+      ],
+    })
+
+    const row = (await db.execute({ sql: 'SELECT * FROM battle_reports WHERE id = ?', args: [req.params.id] }))
+      .rows[0] as unknown as BattleReportRow
+
+    res.json({ success: true, data: { ...toListItem(row), matches: JSON.parse(row.matches_json) } })
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || 'Error editando el reporte' })
+  }
 })
 
 // DELETE /api/battle-reports/:id - Elimina un reporte (solo el capitán del

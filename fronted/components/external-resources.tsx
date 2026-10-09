@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card"
-import { ExternalLink, Trophy, Wrench } from "lucide-react"
+import { ExternalLink, Trophy, Wrench, Users } from "lucide-react"
 
 const RESOURCES = [
   {
@@ -14,13 +14,19 @@ const RESOURCES = [
     url: "https://forum.onlinesoccermanager.com/",
     icon: Trophy,
   },
+  {
+    name: "SEVO Sports",
+    description: "Foro y comunidad de torneos de Online Soccer Manager",
+    url: "https://sevosports.com",
+    icon: Users,
+  },
 ]
 
 export function ExternalResources() {
   return (
     <Card className="p-6 border-primary/20">
       <h3 className="font-bold text-lg mb-4 text-primary">Recursos Externos</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {RESOURCES.map((resource) => (
           <a
             key={resource.url}

@@ -9,7 +9,7 @@ interface Kpis {
   matchesAnalyzed: number
   totalWins: number
   efectividad: number
-  topManager: RankingEntry | null
+  topManagers: { rayo: RankingEntry | null; exiliados: RankingEntry | null }
 }
 
 interface CommunityData {
@@ -57,8 +57,10 @@ export function CaptainKpis({ clan }: { clan: string }) {
         const totalWins = clanReports.reduce((sum, r) => sum + r.summary.v, 0)
         const efectividad = matchesAnalyzed > 0 ? totalWins / matchesAnalyzed : 0
 
-        const clanRanking: RankingEntry[] | undefined = rankings.success ? rankings.data?.[clan] : undefined
-        const topManager = clanRanking && clanRanking.length > 0 ? clanRanking[0] : null
+        // El top manager se muestra de AMBOS clanes siempre, sin importar de
+        // cuál sea capitán quien está mirando (antes solo veía el de su clan).
+        const rayoRanking: RankingEntry[] | undefined = rankings.success ? rankings.data?.rayo : undefined
+        const exiliadosRanking: RankingEntry[] | undefined = rankings.success ? rankings.data?.exiliados : undefined
 
         setKpis({
           activeMembers,
@@ -66,7 +68,10 @@ export function CaptainKpis({ clan }: { clan: string }) {
           matchesAnalyzed,
           totalWins,
           efectividad,
-          topManager,
+          topManagers: {
+            rayo: rayoRanking && rayoRanking.length > 0 ? rayoRanking[0] : null,
+            exiliados: exiliadosRanking && exiliadosRanking.length > 0 ? exiliadosRanking[0] : null,
+          },
         })
       })
       .catch(() => {})
@@ -101,37 +106,27 @@ export function CaptainKpis({ clan }: { clan: string }) {
       </Card>
 
       <Card className="p-6 bg-gradient-to-br from-primary/5 to-transparent border-primary/30">
-        <p className="text-sm text-muted-foreground mb-2">Mejor Manager (por puntos)</p>
-        {kpis?.topManager ? (
-          <>
-            <p className="text-2xl font-bold text-primary truncate">{kpis.topManager.name}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {kpis.topManager.pts} pts · {kpis.topManager.v}V-{kpis.topManager.e}E-{kpis.topManager.d}D · {kpis.topManager.gf} GF
-            </p>
-            <span
-              className={`inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-medium ${
-                kpis.topManager.v > kpis.topManager.d
-                  ? 'bg-primary/15 text-primary'
-                  : kpis.topManager.v < kpis.topManager.d
-                    ? 'bg-destructive/15 text-destructive'
-                    : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              {kpis.topManager.v > kpis.topManager.d
-                ? 'Ganando su liga'
-                : kpis.topManager.v < kpis.topManager.d
-                  ? 'Perdiendo su liga'
-                  : 'Liga pareja'}
-            </span>
-          </>
-        ) : (
-          <>
-            <p className="text-2xl font-bold text-primary">—</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {kpis ? 'Sube un reporte de batalla' : 'Cargando...'}
-            </p>
-          </>
-        )}
+        <p className="text-sm text-muted-foreground mb-3">Mejor Manager (por puntos)</p>
+        <div className="space-y-3">
+          {([
+            { label: 'Exiliados', entry: kpis?.topManagers.exiliados ?? null },
+            { label: 'Rayo', entry: kpis?.topManagers.rayo ?? null },
+          ] as const).map(({ label, entry }) => (
+            <div key={label} className={label !== 'Rayo' ? 'pb-3 border-b border-border/50' : ''}>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+              {entry ? (
+                <>
+                  <p className="text-lg font-bold text-primary truncate">{entry.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {entry.pts} pts · {entry.v}V-{entry.e}E-{entry.d}D
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">{kpis ? 'Sin reportes todavía' : 'Cargando...'}</p>
+              )}
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
   )

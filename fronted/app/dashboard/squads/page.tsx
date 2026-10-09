@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { clanLabel, CLAN_LABELS } from '@/lib/clans'
-import { ArrowLeft, Coins, Plus, Trash, Upload, X } from 'lucide-react'
+import { ArrowLeft, Coins, Plus, Search, Trash, Upload, X } from 'lucide-react'
 import { AccessDeniedDialog } from '@/components/access-denied-dialog'
 
 interface SquadSummary {
@@ -45,11 +45,17 @@ export default function SquadReportsPage() {
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [clanFilter, setClanFilter] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const isCaptain = user?.role === 'captain'
   // Exiliados ve sus reportes y los de Rayo juntos (y puede filtrar); Rayo
   // solo ve los suyos, así que no tiene nada que filtrar.
   const canFilterClan = user?.username === 'chicolinas' || user?.clan === 'exiliados'
+
+  const normalizedSearch = searchQuery.trim().toLowerCase()
+  const filteredReports = normalizedSearch
+    ? reports.filter((r) => r.title.toLowerCase().includes(normalizedSearch))
+    : reports
 
   useEffect(() => {
     if (!loading && !user) {
@@ -163,28 +169,39 @@ export default function SquadReportsPage() {
           </div>
         )}
 
-        {canFilterClan && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
-            <div className="flex rounded-md border border-border overflow-hidden">
-              {[
-                { key: '', label: 'Todos' },
-                { key: 'exiliados', label: 'Exiliados' },
-                { key: 'rayo', label: 'Rayo' },
-              ].map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setClanFilter(opt.key)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+        <div className="flex flex-wrap items-center gap-3">
+          {canFilterClan && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
+              <div className="flex rounded-md border border-border overflow-hidden">
+                {[
+                  { key: '', label: 'Todos' },
+                  { key: 'exiliados', label: 'Exiliados' },
+                  { key: 'rayo', label: 'Rayo' },
+                ].map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setClanFilter(opt.key)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por título..."
+              className="pl-8"
+            />
           </div>
-        )}
+        </div>
 
         {isCaptain && showForm && (
           <Card className="p-6">
@@ -236,9 +253,14 @@ export default function SquadReportsPage() {
             <Coins className="w-8 h-8" />
             <p>Aún no hay reportes de armado. Sube el primer archivo .xlsx.</p>
           </Card>
+        ) : filteredReports.length === 0 ? (
+          <Card className="p-12 flex flex-col items-center gap-3 text-muted-foreground">
+            <Search className="w-8 h-8" />
+            <p>Ningún reporte coincide con "{searchQuery}".</p>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {reports.map((report) => (
+            {filteredReports.map((report) => (
               <Card key={report.id} className="p-5 border-primary/20 hover:border-primary/50 transition-colors flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <Badge variant="outline" className="border-primary/40 text-primary">

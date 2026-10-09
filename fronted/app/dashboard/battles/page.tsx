@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { clanLabel, CLAN_LABELS } from '@/lib/clans'
-import { ArrowLeft, FileSpreadsheet, Plus, Target, Trash, Upload, X } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, Plus, Search, Target, Trash, Upload, X } from 'lucide-react'
 import { AccessDeniedDialog } from '@/components/access-denied-dialog'
 
 interface BattleSummary {
@@ -33,6 +33,9 @@ interface BattleReport {
   uploadedBy: string | null
   createdAt: string
   status: string
+  torneo: string
+  fechaInicio: string
+  fechaFin: string
   summary: BattleSummary
 }
 
@@ -56,12 +59,22 @@ export default function BattleReportsPage() {
   const [draftOpponent, setDraftOpponent] = useState('')
   const [creatingDraft, setCreatingDraft] = useState(false)
   const [clanFilter, setClanFilter] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const isCaptain = user?.role === 'captain'
   const drafts = reports.filter((r) => r.status === 'draft' && r.clan === clan)
   // Exiliados ve sus reportes y los de Rayo juntos (y puede filtrar); Rayo
   // solo ve los suyos, así que no tiene nada que filtrar.
   const canFilterClan = user?.username === 'chicolinas' || user?.clan === 'exiliados'
+
+  const normalizedSearch = searchQuery.trim().toLowerCase()
+  const filteredReports = normalizedSearch
+    ? reports.filter(
+        (r) =>
+          r.title.toLowerCase().includes(normalizedSearch) ||
+          (r.opponent ?? '').toLowerCase().includes(normalizedSearch)
+      )
+    : reports
 
   useEffect(() => {
     if (!loading && !user) {
@@ -228,28 +241,39 @@ export default function BattleReportsPage() {
           </div>
         )}
 
-        {canFilterClan && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
-            <div className="flex rounded-md border border-border overflow-hidden">
-              {[
-                { key: '', label: 'Todos' },
-                { key: 'exiliados', label: 'Exiliados' },
-                { key: 'rayo', label: 'Rayo' },
-              ].map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setClanFilter(opt.key)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+        <div className="flex flex-wrap items-center gap-3">
+          {canFilterClan && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Filtrar por clan:</span>
+              <div className="flex rounded-md border border-border overflow-hidden">
+                {[
+                  { key: '', label: 'Todos' },
+                  { key: 'exiliados', label: 'Exiliados' },
+                  { key: 'rayo', label: 'Rayo' },
+                ].map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setClanFilter(opt.key)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      clanFilter === opt.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por título o rival..."
+              className="pl-8"
+            />
           </div>
-        )}
+        </div>
 
         {isCaptain && showDraftForm && (
           <Card className="p-6">
@@ -367,9 +391,14 @@ export default function BattleReportsPage() {
             <FileSpreadsheet className="w-8 h-8" />
             <p>Aún no hay reportes de batalla. Sube el primer archivo .xlsx.</p>
           </Card>
+        ) : filteredReports.length === 0 ? (
+          <Card className="p-12 flex flex-col items-center gap-3 text-muted-foreground">
+            <Search className="w-8 h-8" />
+            <p>Ningún reporte coincide con "{searchQuery}".</p>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {reports.map((report) => {
+            {filteredReports.map((report) => {
               const isDraft = report.status === 'draft'
               return (
               <Card key={report.id} className="p-5 border-primary/20 hover:border-primary/50 transition-colors flex flex-col">
@@ -395,9 +424,16 @@ export default function BattleReportsPage() {
                   )}
                 </div>
 
-                <h3 className="font-bold text-lg mb-1">{report.title}</h3>
+                <h3 className="font-bold text-lg mb-1">
+                  {report.torneo ? `${report.torneo} - ` : ''}
+                  {report.title}
+                </h3>
                 <p className="text-xs text-muted-foreground mb-4">
-                  vs {report.opponent || '—'} · {new Date(report.createdAt).toLocaleDateString()}
+                  vs {report.opponent || '—'}
+                  {' · '}
+                  {report.fechaInicio
+                    ? `${report.fechaInicio}${report.fechaFin ? ` al ${report.fechaFin}` : ''}`
+                    : new Date(report.createdAt).toLocaleDateString()}
                 </p>
 
                 {isDraft ? (

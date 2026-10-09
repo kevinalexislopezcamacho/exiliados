@@ -145,6 +145,18 @@ export async function initializeDatabase() {
   if (!battleReportColumns.some((col) => col.name === 'status')) {
     await db.execute(`ALTER TABLE battle_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'final'`)
   }
+  // Torneo (ej. "KT") y fechas de inicio/fin de la batalla (texto libre, ej.
+  // "05/08/26"): datos opcionales que un capitán puede agregar o editar
+  // después de subir el reporte, no vienen del Excel.
+  if (!battleReportColumns.some((col) => col.name === 'torneo')) {
+    await db.execute(`ALTER TABLE battle_reports ADD COLUMN torneo TEXT NOT NULL DEFAULT ''`)
+  }
+  if (!battleReportColumns.some((col) => col.name === 'fecha_inicio')) {
+    await db.execute(`ALTER TABLE battle_reports ADD COLUMN fecha_inicio TEXT NOT NULL DEFAULT ''`)
+  }
+  if (!battleReportColumns.some((col) => col.name === 'fecha_fin')) {
+    await db.execute(`ALTER TABLE battle_reports ADD COLUMN fecha_fin TEXT NOT NULL DEFAULT ''`)
+  }
 
   // Partidos que un integrante reporta a mano desde la página mientras una
   // batalla sigue en 'draft' (todavía no llega el Excel oficial). Al subir el
@@ -601,23 +613,13 @@ async function applyCaptainCorrections(db: Client) {
   })
 }
 
-const FLAG_MAP: Record<string, string> = {
-  mx: '🇲🇽',
-  ve: '🇻🇪',
-  co: '🇨🇴',
-  us: '🇺🇸',
-  es: '🇪🇸',
-  ar: '🇦🇷',
-  cl: '🇨🇱',
-  pe: '🇵🇪',
-  br: '🇧🇷',
-  ec: '🇪🇨',
-  bo: '🇧🇴',
-  cu: '🇨🇺',
-  pa: '🇵🇦',
-  uy: '🇺🇾',
-}
-
+// Convierte cualquier código ISO 3166-1 alpha-2 (ej. "mx", "jp", "ru") a su
+// emoji de bandera, calculándolo letra por letra (cada letra A-Z tiene un
+// "regional indicator symbol" propio en Unicode; dos seguidos = una bandera).
+// Así no hay que mantener una lista fija de países que se queda corta.
 export function getCountryFlag(countryCode: string): string {
-  return FLAG_MAP[countryCode.toLowerCase()] || '🌍'
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return '🌍'
+  const REGIONAL_INDICATOR_OFFSET = 0x1f1e6 - 'A'.charCodeAt(0)
+  return [...code].map((letter) => String.fromCodePoint(letter.charCodeAt(0) + REGIONAL_INDICATOR_OFFSET)).join('')
 }
