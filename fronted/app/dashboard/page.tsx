@@ -33,6 +33,10 @@ const GeneralRankingPanel = dynamic(
   () => import('@/components/general-ranking-panel').then((m) => m.GeneralRankingPanel),
   { ssr: false }
 )
+const MinigamesEntryCard = dynamic(
+  () => import('@/components/minigames-entry-card').then((m) => m.MinigamesEntryCard),
+  { ssr: false }
+)
 const GameEventsEntryCard = dynamic(
   () => import('@/components/game-events-entry-card').then((m) => m.GameEventsEntryCard),
   { ssr: false }
@@ -166,7 +170,10 @@ function MemberDashboard({ user }: { user: any }) {
       {/* Roster completo del clan */}
       <ClanRoster clan={user.clan} />
 
-      <GameEventsEntryCard />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <MinigamesEntryCard />
+        <GameEventsEntryCard />
+      </div>
 
       <ExternalResources />
     </div>
@@ -187,7 +194,10 @@ function CaptainDashboard({ user }: { user: any }) {
 
       <ExternalResources />
 
-      <GameEventsEntryCard />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <MinigamesEntryCard />
+        <GameEventsEntryCard />
+      </div>
 
       {/* Reportes de Batalla / Armado (módulos aparte) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

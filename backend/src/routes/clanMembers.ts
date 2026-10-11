@@ -374,6 +374,7 @@ router.delete('/:id', requireCaptain, async (req, res) => {
         await tx.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [existing.member_id] })
         await tx.execute({ sql: 'DELETE FROM member_report_access WHERE member_id = ?', args: [existing.member_id] })
         await tx.execute({ sql: 'DELETE FROM battle_match_submissions WHERE member_id = ?', args: [existing.member_id] })
+        await tx.execute({ sql: 'DELETE FROM minigame_plays WHERE member_id = ?', args: [existing.member_id] })
         await tx.execute({ sql: 'DELETE FROM members WHERE id = ?', args: [existing.member_id] })
       }
       await tx.commit()

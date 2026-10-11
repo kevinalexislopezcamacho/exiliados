@@ -263,6 +263,31 @@ export async function initializeDatabase() {
     )
   `)
 
+  // Minijuegos diarios: la respuesta del día se fija la primera vez que
+  // alguien juega, para que no cambie si el roster cambia durante el día.
+  // Sin FK a propósito: borrar un integrante no debe quedar bloqueado por
+  // partidas viejas (se limpian aparte al borrar la cuenta).
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS minigame_daily (
+      game TEXT NOT NULL,
+      day TEXT NOT NULL,
+      answer_id INTEGER NOT NULL,
+      PRIMARY KEY (game, day)
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS minigame_plays (
+      member_id INTEGER NOT NULL,
+      game TEXT NOT NULL,
+      day TEXT NOT NULL,
+      guesses_json TEXT NOT NULL DEFAULT '[]',
+      finished INTEGER NOT NULL DEFAULT 0,
+      won INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (member_id, game, day)
+    )
+  `)
+
   const memberCount = (await db.execute('SELECT COUNT(*) as count FROM members')).rows[0] as unknown as {
     count: number
   }
