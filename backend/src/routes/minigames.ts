@@ -56,7 +56,7 @@ const GAMES: GameInfo[] = [
   {
     id: 'wordle-futbol',
     name: 'Wordle futbolero',
-    description: 'Una palabra de 5 letras: jugador, club, selección o término. 6 intentos.',
+    description: 'Adiviná el apellido de un jugador (5 letras). 6 intentos.',
     category: 'futbol',
     kind: 'wordle',
     maxAttempts: 6,

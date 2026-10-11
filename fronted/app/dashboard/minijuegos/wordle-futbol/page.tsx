@@ -157,7 +157,7 @@ export default function WordleFutbolPage() {
           </Link>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-primary truncate">Wordle futbolero</h1>
-            <p className="text-sm text-muted-foreground">Adiviná la palabra del día en 6 intentos</p>
+            <p className="text-sm text-muted-foreground">Adiviná el jugador del día en 6 intentos</p>
           </div>
         </div>
       </header>
@@ -211,7 +211,7 @@ export default function WordleFutbolPage() {
                   {state.won ? `¡Acertaste en ${state.guesses.length}!` : 'Se acabaron los intentos'}
                 </p>
                 <p>
-                  La palabra era <span className="font-bold tracking-widest text-primary">{state.answer}</span>
+                  El jugador era <span className="font-bold tracking-widest text-primary">{state.answer}</span>
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Próximo reto en <span className="font-mono font-bold">{countdown}</span>
