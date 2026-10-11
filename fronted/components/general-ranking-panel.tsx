@@ -56,14 +56,14 @@ export function GeneralRankingPanel({ memberClan }: { memberClan?: string } = {}
         <div className="flex items-center gap-2">
           <Trophy className="w-5 h-5 text-primary" />
           <h3 className="font-bold text-lg text-primary">
-            {isMemberView ? `Ranking de ${clanLabel(memberClan)} · Último mes` : 'Ranking General'}
+            {isMemberView ? `Ranking de ${clanLabel(memberClan)} · Últimos 3 meses` : 'Ranking General'}
           </h3>
         </div>
         {!isMemberView && (
         <div className="flex rounded-md border border-border overflow-hidden">
           {[
             { key: 'all' as const, label: 'Histórico' },
-            { key: 'month' as const, label: 'Último mes' },
+            { key: 'month' as const, label: 'Últimos 3 meses' },
           ].map((opt) => (
             <button
               key={opt.key}
@@ -81,7 +81,7 @@ export function GeneralRankingPanel({ memberClan }: { memberClan?: string } = {}
       <p className="text-xs text-muted-foreground mb-4">
         {isMemberView ? `Integrantes de ${clanLabel(memberClan)}` : 'Rayo + Exiliados combinados'} — puntaje compuesto: 40% efectividad de liga, 25% eficiencia de armado, 20% valor
         de equipo, 15% meta cumplida
-        {period === 'month' && ' · solo batallas con fecha de inicio en los últimos 30 días; se va actualizando solo, día a día'}
+        {period === 'month' && ' · solo batallas con fecha de inicio en los últimos 3 meses; se va actualizando solo, día a día'}
       </p>
 
       {entries === null ? (
@@ -93,9 +93,9 @@ export function GeneralRankingPanel({ memberClan }: { memberClan?: string } = {}
       ) : top.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border/50 rounded-lg">
           {isMemberView
-            ? 'Todavía no hay batallas del último mes para armar el ranking.'
+            ? 'Todavía no hay batallas de los últimos 3 meses para armar el ranking.'
             : period === 'month'
-            ? 'Ningún reporte de batalla tiene fecha de inicio en el último mes todavía. Editá un reporte para agregarle la fecha.'
+            ? 'Ningún reporte de batalla tiene fecha de inicio en los últimos 3 meses todavía. Editá un reporte para agregarle la fecha.'
             : 'Sube reportes de jornadas o de armado para ver el ranking general'}
         </p>
       ) : (

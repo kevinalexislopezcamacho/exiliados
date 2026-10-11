@@ -31,12 +31,12 @@ router.get('/squads', requireCaptain, async (_req, res) => {
 
 // GET /api/rankings/general?period=month - Quinto ranking: combina Rayo +
 // Exiliados. Sin ?period= (o period=all) es el histórico completo;
-// period=month filtra la parte de jornadas a una ventana MÓVIL de un mes (hoy
-// menos un mes), no al mes de calendario — cada reporte va saliendo solo de
-// la ventana al cumplir un mes desde su fecha de inicio, en vez de
+// period=month filtra la parte de jornadas a una ventana MÓVIL de 3 meses (hoy
+// menos 3 meses), no al mes de calendario — cada reporte va saliendo solo de
+// la ventana al cumplir 3 meses desde su fecha de inicio, en vez de
 // "reiniciar" todo de golpe el día 1.
 //
-// Los capitanes ven todo. Los integrantes solo ven el del último mes y
+// Los capitanes ven todo. Los integrantes solo ven el de los últimos 3 meses y
 // únicamente a los de su propio clan (el puntaje es el mismo que ven los
 // capitanes: se calcula con ambos clanes y recién después se filtra).
 router.get('/general', requireAuth, async (req, res) => {
@@ -45,11 +45,11 @@ router.get('/general', requireAuth, async (req, res) => {
     const isCaptain = req.user?.role === 'captain'
     let options: { onlyFromDate: Date } | undefined
     if (req.query.period === 'month' || !isCaptain) {
-      // Medianoche de hoy menos un mes: así cualquier fecha de ese día
+      // Medianoche de hoy menos 3 meses: así cualquier fecha de ese día
       // cuenta completo, en vez de quedar afuera por la hora exacta actual.
       const cutoff = new Date()
       cutoff.setHours(0, 0, 0, 0)
-      cutoff.setMonth(cutoff.getMonth() - 1)
+      cutoff.setMonth(cutoff.getMonth() - 3)
       options = { onlyFromDate: cutoff }
     }
     const data = await computeGeneralRanking(db, options)
