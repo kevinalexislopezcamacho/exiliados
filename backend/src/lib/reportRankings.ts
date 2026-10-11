@@ -133,6 +133,9 @@ export async function computeReportRankings(db: Client, options?: ReportRankings
   for (const [key, stat] of totals) {
     const clan = key.split('::')[0] as RankedClan
     const nameSlug = slugifyUsername(stat.manager)
+    // Solo cuenta quien sigue en el roster actual de ese clan: los reportes
+    // viejos guardan a managers que ya se fueron o se cambiaron de clan.
+    if (!flagByKey.has(`${clan}::${nameSlug}`)) continue
     const flag = flagByKey.get(`${clan}::${nameSlug}`) ?? ''
     const armado = armadoByKey[clan].get(nameSlug) ?? { valorActual: null, eficiencia: null }
     data[clan].push({

@@ -880,10 +880,10 @@ router.get('/', requireAuth, async (req, res) => {
 
     const myPlays = (
       await db.execute({
-        sql: 'SELECT game, day, finished, won, score FROM minigame_plays WHERE member_id = ?',
+        sql: 'SELECT game, day, finished, won, score, guesses_json FROM minigame_plays WHERE member_id = ?',
         args: [memberId],
       })
-    ).rows as unknown as Array<{ game: string; day: string; finished: number; won: number; score: number | null }>
+    ).rows as unknown as Array<{ game: string; day: string; finished: number; won: number; score: number | null; guesses_json: string }>
 
     const counts = (
       await db.execute('SELECT category, COUNT(*) as count FROM trivia_questions GROUP BY category')
@@ -901,7 +901,13 @@ router.get('/', requireAuth, async (req, res) => {
         ...game,
         available: game.triviaCategory ? (questionCount.get(game.triviaCategory) ?? 0) > 0 : true,
         today: today
-          ? { started: true, finished: !!today.finished, won: !!today.won, score: today.score }
+          ? {
+              started: true,
+              finished: !!today.finished,
+              won: !!today.won,
+              // Partidas viejas de "adivina" se guardaron sin score: se usa la cantidad de intentos.
+              score: today.score ?? (today.won ? (JSON.parse(today.guesses_json) as unknown[]).length : null),
+            }
           : { started: false, finished: false, won: false, score: null },
         currentStreak: streaks.currentStreak,
         maxStreak: streaks.maxStreak,

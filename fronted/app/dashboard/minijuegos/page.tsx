@@ -47,7 +47,8 @@ function gameHref(game: GameSummary) {
 function statusLabel(game: GameSummary) {
   if (!game.today.finished) return game.today.started ? 'En curso' : 'Sin jugar'
   if (game.kind === 'quiz') return `${game.today.score ?? 0}/5`
-  return game.today.won ? `Acertaste en ${game.today.score}` : 'No acertaste'
+  if (!game.today.won) return 'No acertaste'
+  return game.today.score ? `Acertaste en ${game.today.score}` : '¡Acertaste!'
 }
 
 export default function MinigamesPage() {
