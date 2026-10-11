@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { getDatabase } from '../db'
-import { requireCaptain } from '../middleware/auth'
+import { requireAuth, requireCaptain } from '../middleware/auth'
 import { computeReportRankings } from '../lib/reportRankings'
 import { computeSquadRankings } from '../lib/squadRankings'
 import { computeGeneralRanking } from '../lib/generalRanking'
@@ -30,16 +30,21 @@ router.get('/squads', requireCaptain, async (_req, res) => {
 })
 
 // GET /api/rankings/general?period=month - Quinto ranking: combina Rayo +
-// Exiliados (solo capitanes). Sin ?period= (o period=all) es el histórico
-// completo; period=month filtra la parte de jornadas a una ventana MÓVIL de
-// un mes (hoy menos un mes), no al mes de calendario — cada reporte va
-// saliendo solo de la ventana al cumplir un mes desde su fecha de inicio, en
-// vez de "reiniciar" todo de golpe el día 1.
-router.get('/general', requireCaptain, async (req, res) => {
+// Exiliados. Sin ?period= (o period=all) es el histórico completo;
+// period=month filtra la parte de jornadas a una ventana MÓVIL de un mes (hoy
+// menos un mes), no al mes de calendario — cada reporte va saliendo solo de
+// la ventana al cumplir un mes desde su fecha de inicio, en vez de
+// "reiniciar" todo de golpe el día 1.
+//
+// Los capitanes ven todo. Los integrantes solo ven el del último mes y
+// únicamente a los de su propio clan (el puntaje es el mismo que ven los
+// capitanes: se calcula con ambos clanes y recién después se filtra).
+router.get('/general', requireAuth, async (req, res) => {
   try {
     const db = getDatabase()
+    const isCaptain = req.user?.role === 'captain'
     let options: { onlyFromDate: Date } | undefined
-    if (req.query.period === 'month') {
+    if (req.query.period === 'month' || !isCaptain) {
       // Medianoche de hoy menos un mes: así cualquier fecha de ese día
       // cuenta completo, en vez de quedar afuera por la hora exacta actual.
       const cutoff = new Date()
@@ -48,7 +53,15 @@ router.get('/general', requireCaptain, async (req, res) => {
       options = { onlyFromDate: cutoff }
     }
     const data = await computeGeneralRanking(db, options)
-    res.json({ success: true, data })
+    if (isCaptain) return res.json({ success: true, data })
+
+    // El clan sale del roster (por si se cambió de clan); si no está
+    // vinculado, el de la cuenta.
+    const rosterClan = (
+      await db.execute({ sql: 'SELECT clan FROM clan_members WHERE member_id = ? LIMIT 1', args: [req.user!.id] })
+    ).rows[0] as unknown as { clan: string } | undefined
+    const clan = rosterClan?.clan ?? req.user?.clan
+    res.json({ success: true, data: data.filter((e) => e.clan === clan) })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error fetching general ranking' })
   }

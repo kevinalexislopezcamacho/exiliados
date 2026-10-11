@@ -26,9 +26,12 @@ function scoreColor(score: number) {
   return 'text-foreground'
 }
 
-export function GeneralRankingPanel() {
+// Con memberClan (vista de integrante) se muestra solo el ranking del último
+// mes de su clan, sin selector ni columna de clan; el backend ya filtra.
+export function GeneralRankingPanel({ memberClan }: { memberClan?: string } = {}) {
+  const isMemberView = !!memberClan
   const [entries, setEntries] = useState<GeneralEntry[] | null>(null)
-  const [period, setPeriod] = useState<'all' | 'month'>('all')
+  const [period, setPeriod] = useState<'all' | 'month'>(isMemberView ? 'month' : 'all')
 
   useEffect(() => {
     let active = true
@@ -52,8 +55,11 @@ export function GeneralRankingPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
         <div className="flex items-center gap-2">
           <Trophy className="w-5 h-5 text-primary" />
-          <h3 className="font-bold text-lg text-primary">Ranking General</h3>
+          <h3 className="font-bold text-lg text-primary">
+            {isMemberView ? `Ranking de ${clanLabel(memberClan)} · Último mes` : 'Ranking General'}
+          </h3>
         </div>
+        {!isMemberView && (
         <div className="flex rounded-md border border-border overflow-hidden">
           {[
             { key: 'all' as const, label: 'Histórico' },
@@ -70,9 +76,10 @@ export function GeneralRankingPanel() {
             </button>
           ))}
         </div>
+        )}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Rayo + Exiliados combinados — puntaje compuesto: 40% efectividad de liga, 25% eficiencia de armado, 20% valor
+        {isMemberView ? `Integrantes de ${clanLabel(memberClan)}` : 'Rayo + Exiliados combinados'} — puntaje compuesto: 40% efectividad de liga, 25% eficiencia de armado, 20% valor
         de equipo, 15% meta cumplida
         {period === 'month' && ' · solo batallas con fecha de inicio en los últimos 30 días; se va actualizando solo, día a día'}
       </p>
@@ -85,7 +92,9 @@ export function GeneralRankingPanel() {
         </div>
       ) : top.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border/50 rounded-lg">
-          {period === 'month'
+          {isMemberView
+            ? 'Todavía no hay batallas del último mes para armar el ranking.'
+            : period === 'month'
             ? 'Ningún reporte de batalla tiene fecha de inicio en el último mes todavía. Editá un reporte para agregarle la fecha.'
             : 'Sube reportes de jornadas o de armado para ver el ranking general'}
         </p>
@@ -96,7 +105,7 @@ export function GeneralRankingPanel() {
               <tr className="text-xs text-muted-foreground">
                 <th className="px-3 py-2 text-left font-medium">#</th>
                 <th className="px-3 py-2 text-left font-medium">Manager</th>
-                <th className="px-3 py-2 text-left font-medium">Clan</th>
+                {!isMemberView && <th className="px-3 py-2 text-left font-medium">Clan</th>}
                 <th className="px-3 py-2 text-center font-medium">Puntaje</th>
                 <th className="px-3 py-2 text-center font-medium">Efect.</th>
                 <th className="px-3 py-2 text-center font-medium">PTS</th>
@@ -122,7 +131,7 @@ export function GeneralRankingPanel() {
                       </>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">{entry.clan ? clanLabel(entry.clan) : '—'}</td>
+                  {!isMemberView && <td className="px-3 py-2 text-muted-foreground">{entry.clan ? clanLabel(entry.clan) : '—'}</td>}
                   <td className={`px-3 py-2 text-center font-bold ${scoreColor(entry.score)}`}>{entry.score}</td>
                   <td className="px-3 py-2 text-center">
                     {entry.efectividad !== null ? `${Math.round(entry.efectividad * 100)}%` : '—'}

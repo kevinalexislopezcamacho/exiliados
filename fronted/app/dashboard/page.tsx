@@ -167,6 +167,9 @@ function MemberDashboard({ user }: { user: any }) {
       {/* Reportes de jornadas/armado, si el capitán habilitó el acceso */}
       <MemberReportsAccessCard clan={user.clan} />
 
+      {/* Ranking del último mes, solo de su clan */}
+      <GeneralRankingPanel memberClan={user.clan} />
+
       {/* Roster completo del clan */}
       <ClanRoster clan={user.clan} />
 

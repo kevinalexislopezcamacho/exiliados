@@ -72,13 +72,15 @@ export interface ReportRankingsOptions {
 export async function computeReportRankings(db: Client, options?: ReportRankingsOptions): Promise<RankingsData> {
   const reportRows = (
     await db.execute(
-      `SELECT clan, summary_json, fecha_inicio FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`
+      `SELECT clan, summary_json, fecha_inicio, created_at FROM battle_reports WHERE clan IN ('rayo', 'exiliados')`
     )
-  ).rows as unknown as Array<{ clan: RankedClan; summary_json: string; fecha_inicio: string }>
+  ).rows as unknown as Array<{ clan: RankedClan; summary_json: string; fecha_inicio: string; created_at: string | null }>
 
   const scopedRows = options?.onlyFromDate
     ? reportRows.filter((row) => {
-        const d = parseFecha(row.fecha_inicio ?? '')
+        // Si el reporte no tiene fecha de inicio cargada, se usa la fecha en
+        // que se subió (casi siempre es la misma semana de la batalla).
+        const d = parseFecha(row.fecha_inicio ?? '') ?? (row.created_at ? new Date(row.created_at.replace(' ', 'T') + 'Z') : null)
         return d !== null && d >= options.onlyFromDate!
       })
     : reportRows
