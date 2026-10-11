@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card"
-import { ExternalLink, Search, Trophy, Wrench, Users } from "lucide-react"
+import { ExternalLink, Trophy, Wrench, Users } from "lucide-react"
 
 const RESOURCES = [
   {
@@ -13,12 +13,6 @@ const RESOURCES = [
     description: "Noticias, información y torneos del juego",
     url: "https://forum.onlinesoccermanager.com/",
     icon: Trophy,
-  },
-  {
-    name: "Ojeador (OSM Helper)",
-    description: "Buscá jugadores por posición, edad, rating, nacionalidad y liga",
-    url: "https://osmhelper.com/scout/",
-    icon: Search,
   },
   {
     name: "SEVO Sports",

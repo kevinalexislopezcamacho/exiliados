@@ -1,5 +1,6 @@
 import { createClient, type Client } from '@libsql/client'
 import crypto from 'crypto'
+import { FUTBOL_QUESTIONS, OSM_QUESTIONS } from './lib/minigameContent'
 
 export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex')
@@ -287,6 +288,52 @@ export async function initializeDatabase() {
       PRIMARY KEY (member_id, game, day)
     )
   `)
+  const playColumns = (await db.execute(`PRAGMA table_info(minigame_plays)`)).rows as unknown as ColumnInfo[]
+  if (!playColumns.some((col) => col.name === 'score')) {
+    await db.execute(`ALTER TABLE minigame_plays ADD COLUMN score INTEGER`)
+  }
+  // Reto completo del día por juego (preguntas, palabra, etc.), guardado la
+  // primera vez que alguien lo abre para que sea igual para todos.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS minigame_puzzles (
+      game TEXT NOT NULL,
+      day TEXT NOT NULL,
+      puzzle_json TEXT NOT NULL,
+      PRIMARY KEY (game, day)
+    )
+  `)
+  // Banco de preguntas de las trivias (fútbol, OSM, competencias); los
+  // capitanes lo administran desde la página. correct_index apunta a
+  // options_json.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS trivia_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      question TEXT NOT NULL,
+      options_json TEXT NOT NULL,
+      correct_index INTEGER NOT NULL DEFAULT 0,
+      explanation TEXT NOT NULL DEFAULT '',
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  for (const [category, questions] of [
+    ['futbol', FUTBOL_QUESTIONS],
+    ['osm', OSM_QUESTIONS],
+  ] as const) {
+    const existing = (
+      await db.execute({ sql: 'SELECT COUNT(*) as count FROM trivia_questions WHERE category = ?', args: [category] })
+    ).rows[0] as unknown as { count: number }
+    if (Number(existing.count) === 0) {
+      for (const q of questions) {
+        await db.execute({
+          sql: `INSERT INTO trivia_questions (category, question, options_json, correct_index, explanation, created_by)
+                VALUES (?, ?, ?, 0, ?, 'sistema')`,
+          args: [category, q.question, JSON.stringify(q.options), q.explanation ?? ''],
+        })
+      }
+    }
+  }
 
   const memberCount = (await db.execute('SELECT COUNT(*) as count FROM members')).rows[0] as unknown as {
     count: number

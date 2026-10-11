@@ -6,26 +6,30 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ChevronRight, Flame, Gamepad2 } from "lucide-react"
 
+interface Summary {
+  finishedToday: number
+  dailyStreak: number
+  games: { available: boolean }[]
+}
+
 export function MinigamesEntryCard() {
-  const [finished, setFinished] = useState<boolean | null>(null)
-  const [streak, setStreak] = useState<number | null>(null)
+  const [summary, setSummary] = useState<Summary | null>(null)
 
   useEffect(() => {
     let active = true
-    Promise.all([
-      fetch("/api/minigames/adivina-integrante").then((r) => r.json()),
-      fetch("/api/minigames/adivina-integrante/stats").then((r) => r.json()),
-    ])
-      .then(([state, stats]) => {
-        if (!active) return
-        if (state.success) setFinished(!!state.data.finished)
-        if (stats.success) setStreak(stats.data.currentStreak)
+    fetch("/api/minigames")
+      .then((r) => r.json())
+      .then((r) => {
+        if (active && r.success) setSummary(r.data)
       })
       .catch(() => {})
     return () => {
       active = false
     }
   }, [])
+
+  const total = summary ? summary.games.filter((g) => g.available).length : 0
+  const allDone = !!summary && total > 0 && summary.finishedToday >= total
 
   return (
     <Card className="p-6 bg-gradient-to-br from-primary/5 to-transparent border-primary/30">
@@ -37,20 +41,24 @@ export function MinigamesEntryCard() {
           <div>
             <h3 className="font-bold text-lg text-primary">Minijuegos</h3>
             <p className="text-sm text-muted-foreground">
-              {finished === null ? "Cargando..." : finished ? "Ya jugaste el reto de hoy" : "Hay un reto nuevo esperándote"}
+              {!summary
+                ? "Cargando..."
+                : allDone
+                  ? "Ya jugaste todos los retos de hoy"
+                  : `${summary.finishedToday}/${total} retos de hoy terminados`}
             </p>
           </div>
         </div>
-        {streak !== null && streak > 0 && (
-          <span className="flex items-center gap-1 text-sm font-bold text-amber-500" title="Racha actual">
-            <Flame className="w-4 h-4" /> {streak}
+        {summary && summary.dailyStreak > 0 && (
+          <span className="flex items-center gap-1 text-sm font-bold text-amber-500" title="Días seguidos jugando">
+            <Flame className="w-4 h-4" /> {summary.dailyStreak}
           </span>
         )}
       </div>
 
       <Link href="/dashboard/minijuegos" className="mt-4 block">
         <Button variant="outline" className="w-full justify-between border-primary/40 hover:bg-primary/10">
-          {finished ? "Ver minijuegos" : "Jugar el reto de hoy"}
+          {allDone ? "Ver minijuegos" : "Jugar los retos de hoy"}
           <ChevronRight className="w-4 h-4" />
         </Button>
       </Link>
