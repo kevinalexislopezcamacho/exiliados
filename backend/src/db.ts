@@ -573,6 +573,7 @@ export async function initializeDatabase() {
 
   await syncRosterAccounts(db)
   await linkRosterMemberIds(db)
+  await mergeDuplicateRosterAccounts(db)
   await applyCaptainCorrections(db)
 }
 
@@ -604,8 +605,12 @@ export function slugifyUsername(name: string): string {
 // idempotente: se ejecuta en cada arranque y solo crea lo que falte, sin
 // tocar cuentas existentes (evita duplicar, ej. 'chicolinas' ya es capitán).
 async function syncRosterAccounts(db: Client) {
-  const roster = (await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados')`))
-    .rows as unknown as Array<{ name: string; clan: string }>
+  // Los que ya tienen cuenta vinculada se saltean: si a alguien se le cambia
+  // el nombre en el roster, su cuenta sigue siendo la misma (antes se le
+  // creaba una segunda cuenta con el nombre nuevo, quedando duplicado).
+  const roster = (
+    await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados') AND member_id IS NULL`)
+  ).rows as unknown as Array<{ name: string; clan: string }>
 
   const existingUsernames = new Set(
     ((await db.execute('SELECT LOWER(username) as u FROM members')).rows as unknown as Array<{ u: string }>).map(
@@ -648,6 +653,50 @@ async function linkRosterMemberIds(db: Client) {
     if (member) {
       await db.execute({ sql: `UPDATE clan_members SET member_id = ? WHERE id = ?`, args: [member.id, row.id] })
     }
+  }
+}
+
+// Repara las cuentas duplicadas por el bug de arriba: el roster apunta a la
+// cuenta vieja (sin contraseña) mientras la persona se registró en la cuenta
+// creada con su nombre nuevo. Se pasa el roster a la cuenta que sí tiene
+// contraseña y se borra la vieja vacía. Idempotente.
+async function mergeDuplicateRosterAccounts(db: Client) {
+  const rows = (
+    await db.execute(`
+      SELECT cm.id, cm.name, cm.member_id as oldId
+      FROM clan_members cm JOIN members m ON m.id = cm.member_id
+      WHERE cm.clan IN ('rayo', 'exiliados') AND m.has_password = 0
+    `)
+  ).rows as unknown as Array<{ id: number; name: string; oldId: number }>
+
+  for (const row of rows) {
+    const username = slugifyUsername(row.name)
+    if (!username) continue
+    const target = (
+      await db.execute({
+        sql: `SELECT id FROM members WHERE username = ? AND id != ? AND has_password = 1
+              AND id NOT IN (SELECT member_id FROM clan_members WHERE member_id IS NOT NULL)`,
+        args: [username, row.oldId],
+      })
+    ).rows[0] as unknown as { id: number } | undefined
+    if (!target) continue
+
+    const oldId = Number(row.oldId)
+    const newId = Number(target.id)
+    await db.batch(
+      [
+        { sql: 'UPDATE clan_members SET member_id = ? WHERE id = ?', args: [newId, row.id] },
+        { sql: 'UPDATE battle_match_submissions SET member_id = ? WHERE member_id = ?', args: [newId, oldId] },
+        { sql: 'UPDATE OR IGNORE minigame_plays SET member_id = ? WHERE member_id = ?', args: [newId, oldId] },
+        { sql: 'DELETE FROM minigame_plays WHERE member_id = ?', args: [oldId] },
+        { sql: 'INSERT OR IGNORE INTO member_report_access (member_id, enabled) SELECT ?, enabled FROM member_report_access WHERE member_id = ?', args: [newId, oldId] },
+        { sql: 'DELETE FROM member_report_access WHERE member_id = ?', args: [oldId] },
+        { sql: 'DELETE FROM sessions WHERE user_id = ?', args: [oldId] },
+        { sql: 'DELETE FROM members WHERE id = ?', args: [oldId] },
+      ],
+      'write'
+    )
+    console.log(`Cuenta duplicada unificada para "${row.name}": ${oldId} -> ${newId}`)
   }
 }
 
