@@ -79,6 +79,15 @@ export async function initializeDatabase() {
   if (!warriorColumns.some((col) => col.name === 'image_url')) {
     await db.execute(`ALTER TABLE warriors ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
   }
+  // Carta "Conociendo al jugador" de cada guerrero (imagen completa, se
+  // muestra sin recortar en la landing y al hacer clic).
+  if (!warriorColumns.some((col) => col.name === 'card_url')) {
+    await db.execute(`ALTER TABLE warriors ADD COLUMN card_url TEXT NOT NULL DEFAULT ''`)
+  }
+  await db.execute({
+    sql: `UPDATE warriors SET card_url = ? WHERE LOWER(name) = 'chicolinas' AND card_url = ''`,
+    args: ['/warriors/carta-chicolinas.jpeg'],
+  })
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS stats (

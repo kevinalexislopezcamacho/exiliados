@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getCountryFlag, getDatabase } from '../db'
+import { getCountryFlag, getDatabase, slugifyUsername } from '../db'
 
 const router = Router()
 
@@ -9,7 +9,8 @@ router.get('/', async (_req, res) => {
     const db = getDatabase()
     const warriors = (
       await db.execute(`
-      SELECT id, name, role, rank, nationality, country_code as countryCode, initial, image_url as imageUrl
+      SELECT id, name, role, rank, nationality, country_code as countryCode, initial, image_url as imageUrl,
+             card_url as cardUrl
       FROM warriors
       ORDER BY id ASC
     `)
@@ -22,11 +23,19 @@ router.get('/', async (_req, res) => {
       countryCode: string
       initial: string
       imageUrl: string
+      cardUrl: string
     }>
+
+    // Clan de cada guerrero según el roster, para poder abrir su perfil
+    // (notas) al hacer clic.
+    const roster = (await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados')`))
+      .rows as unknown as Array<{ name: string; clan: string }>
+    const clanBySlug = new Map(roster.map((r) => [slugifyUsername(r.name), r.clan]))
 
     const warriorsWithFlags = warriors.map((warrior) => ({
       ...warrior,
       flag: getCountryFlag(warrior.countryCode),
+      clan: clanBySlug.get(slugifyUsername(warrior.name)) ?? null,
     }))
 
     res.json({ success: true, data: warriorsWithFlags, count: warriorsWithFlags.length })
