@@ -8,7 +8,7 @@ import { MinigameEmpty, MinigameLoading, MinigameShell, ShareButton, useMinigame
 import { MinigameSearch } from '@/components/minigame-search'
 import { Check, ChevronRight, X } from 'lucide-react'
 
-type Clue = { type: 'career'; clubs: string[] } | { type: 'crest'; pixels: number | null }
+type Clue = { type: 'career'; clubs: Array<{ name: string; image: string | null }> } | { type: 'crest'; pixels: number | null }
 
 interface GuessState {
   day: string
@@ -114,15 +114,19 @@ export default function AdivinanzaPage() {
             {state.clue.type === 'career' ? (
               <div>
                 <p className="text-xs text-muted-foreground mb-3">Clubes en orden</p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {state.clue.clubs.map((club, i) => (
+                <div className="flex flex-wrap items-start gap-1.5">
+                  {state.clue.clubs.map((club, i, clubs) => (
                     <span key={i} className="flex items-center gap-1.5">
-                      <span className="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-sm font-medium">
-                        {club}
+                      <span className="flex flex-col items-center gap-1 w-[76px] sm:w-[88px] rounded-lg border border-primary/40 bg-primary/10 px-1.5 py-2 text-center">
+                        {club.image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={club.image} alt="" loading="lazy" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
+                        ) : (
+                          <span className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-2xl">🛡️</span>
+                        )}
+                        <span className="text-[11px] sm:text-xs font-medium leading-tight">{club.name}</span>
                       </span>
-                      {i < (state.clue as { clubs: string[] }).clubs.length - 1 && (
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      )}
+                      {i < clubs.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
                     </span>
                   ))}
                 </div>

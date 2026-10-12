@@ -11,6 +11,7 @@ import {
   GRID_TAG_LABELS,
   NATION_FLAG_CODES,
   WORLD_CUP_SCORERS,
+  crestUrlFor,
   type GridPlayer,
   type GridTag,
 } from './footballData'
@@ -602,7 +603,7 @@ async function guessState(db: Client, game: GameInfo, memberId: number) {
   const hints: Array<{ label: string; value: string }> = []
   if (game.id === 'trayectoria') {
     const career = CAREERS.find((c) => c.name === puzzle.answer)!
-    clue = { type: 'career', clubs: career.clubs }
+    clue = { type: 'career', clubs: career.clubs.map((name) => ({ name, image: crestUrlFor(name) })) }
     if (wrong >= 2 || finished) hints.push({ label: 'Nacionalidad', value: career.nation })
     if (wrong >= 4 || finished) hints.push({ label: 'Posición', value: career.position })
   } else {
