@@ -405,7 +405,7 @@ interface QuizPuzzle {
 }
 
 function quizWinThreshold(total: number) {
-  return Math.ceil(total * 0.6)
+  return Math.ceil(total * 0.8)
 }
 
 async function buildTriviaPuzzle(db: Client, game: GameInfo, day: string): Promise<QuizPuzzle | null> {

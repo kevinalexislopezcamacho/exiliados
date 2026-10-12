@@ -165,26 +165,32 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 })
 
-// GET /api/battle-reports/tactics?clan=X - Efectividad por banda de presión y
+// GET /api/battle-reports/tactics?clan=X|general - Efectividad por banda de presión y
 // alineación, cruzando todos los reportes de ese clan (chicolinas puede ver
 // cualquier clan; Exiliados puede ver el suyo o el de Rayo; todos los demás,
 // incluidos otros capitanes, solo el suyo, y solo si el acceso está
 // habilitado). Va antes de "/:id" para que Express no la confunda con un id.
 router.get('/tactics', requireReportAccess, async (req, res) => {
   try {
-    let clan: string
-    if (req.user?.username === 'chicolinas') {
-      clan = String(req.query.clan ?? '')
+    // ?clan=general combina Rayo + Exiliados; solo para quien puede ver
+    // los dos clanes (chicolinas y Exiliados).
+    const isSuperAdmin = req.user?.username === 'chicolinas'
+    const allowed = isSuperAdmin ? ['exiliados', 'rayo'] : visibleClansFor(req.user)
+    const requested = String(req.query.clan ?? '')
+    let clans: string[]
+    if (requested === 'general' && allowed.includes('exiliados') && allowed.includes('rayo')) {
+      clans = ['exiliados', 'rayo']
+    } else if (isSuperAdmin) {
+      clans = requested ? [requested] : []
     } else {
-      const allowed = visibleClansFor(req.user)
-      const requested = String(req.query.clan ?? '')
-      clan = allowed.includes(requested) ? requested : req.user?.clan ?? ''
+      const clan = allowed.includes(requested) ? requested : req.user?.clan ?? ''
+      clans = clan ? [clan] : []
     }
-    if (!clan) {
-      return res.status(400).json({ success: false, error: 'Debes indicar el clan (?clan=rayo|exiliados)' })
+    if (clans.length === 0) {
+      return res.status(400).json({ success: false, error: 'Debes indicar el clan (?clan=rayo|exiliados|general)' })
     }
     const db = getDatabase()
-    const data = await computeTacticalAnalysis(db, clan)
+    const data = await computeTacticalAnalysis(db, clans)
     res.json({ success: true, data })
   } catch (error) {
     res.status(500).json({ success: false, error: 'Error calculando el análisis táctico' })

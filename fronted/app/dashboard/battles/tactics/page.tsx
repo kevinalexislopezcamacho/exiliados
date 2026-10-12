@@ -135,6 +135,7 @@ export default function TacticalAnalysisPage() {
             >
               <option value="exiliados">Exiliados</option>
               <option value="rayo">Rayo</option>
+              <option value="general">General (Rayo + Exiliados)</option>
             </select>
           )}
         </div>
@@ -161,7 +162,7 @@ export default function TacticalAnalysisPage() {
         ) : data.totalPartidosConDatos === 0 ? (
           <Card className="p-12 flex flex-col items-center gap-3 text-muted-foreground">
             <Target className="w-8 h-8" />
-            <p>Todavía no hay suficientes datos tácticos en los reportes de {clanLabel(clan)}.</p>
+            <p>Todavía no hay suficientes datos tácticos en los reportes de {clan === 'general' ? 'Rayo y Exiliados' : clanLabel(clan)}.</p>
           </Card>
         ) : (
           <>

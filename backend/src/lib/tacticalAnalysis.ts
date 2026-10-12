@@ -69,9 +69,14 @@ function bandFor(pressure: number): PressureBand | null {
   return PRESSURE_BANDS.find((b) => pressure >= b.min && pressure <= b.max) ?? null
 }
 
-export async function computeTacticalAnalysis(db: Client, clan: string): Promise<TacticalAnalysis> {
+// clans: uno solo (análisis de ese clan) o varios (vista "General" que
+// combina los partidos de Rayo y Exiliados como si fueran un solo equipo).
+export async function computeTacticalAnalysis(db: Client, clans: string[]): Promise<TacticalAnalysis> {
   const reports = (
-    await db.execute({ sql: `SELECT matches_json FROM battle_reports WHERE clan = ?`, args: [clan] })
+    await db.execute({
+      sql: `SELECT matches_json FROM battle_reports WHERE clan IN (${clans.map(() => '?').join(', ')})`,
+      args: clans,
+    })
   ).rows as unknown as Array<{ matches_json: string }>
 
   const byPressure = new Map<string, RecordAcc>()
