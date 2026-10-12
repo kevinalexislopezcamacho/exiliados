@@ -14,8 +14,9 @@ interface GameSummary {
   name: string
   description: string
   category: 'clan' | 'futbol' | 'osm' | 'competencias'
-  kind: 'guess-member' | 'quiz' | 'wordle'
+  kind: 'guess-member' | 'quiz' | 'wordle' | 'order' | 'timed' | 'grid' | 'guess'
   maxAttempts: number
+  scoreMax?: number
   available: boolean
   today: { started: boolean; finished: boolean; won: boolean; score: number | null }
   currentStreak: number
@@ -41,12 +42,13 @@ const CATEGORY_ORDER: GameSummary['category'][] = ['clan', 'futbol', 'osm', 'com
 
 function gameHref(game: GameSummary) {
   if (game.kind === 'quiz') return `/dashboard/minijuegos/quiz/${game.id}`
+  if (game.kind === 'guess') return `/dashboard/minijuegos/adivinanza/${game.id}`
   return `/dashboard/minijuegos/${game.id}`
 }
 
 function statusLabel(game: GameSummary) {
   if (!game.today.finished) return game.today.started ? 'En curso' : 'Sin jugar'
-  if (game.kind === 'quiz') return `${game.today.score ?? 0}/5`
+  if (game.scoreMax) return `${game.today.score ?? 0}/${game.scoreMax}`
   if (!game.today.won) return 'No acertaste'
   return game.today.score ? `Acertaste en ${game.today.score}` : '¡Acertaste!'
 }

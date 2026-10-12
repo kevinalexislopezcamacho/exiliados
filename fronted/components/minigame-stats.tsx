@@ -13,7 +13,7 @@ interface LeaderboardEntry {
 }
 
 export interface MinigameStatsData {
-  kind: 'guess-member' | 'quiz' | 'wordle'
+  kind: string
   played: number
   wins: number
   losses: number
@@ -21,6 +21,8 @@ export interface MinigameStatsData {
   currentStreak: number
   maxStreak: number
   distribution: number[]
+  distributionLabels?: string[]
+  distributionTitle?: string
   leaderboard: LeaderboardEntry[]
 }
 
@@ -78,12 +80,12 @@ export function MinigameStats({ game, refreshKey }: { game: string; refreshKey: 
           </div>
         </div>
         <p className="text-xs text-muted-foreground mb-2">
-          {isQuiz ? 'Respuestas correctas por partida' : 'Intentos para acertar'}
+          {stats.distributionTitle ?? (isQuiz ? 'Respuestas correctas por partida' : 'Intentos para acertar')}
         </p>
         <div className="space-y-1">
           {stats.distribution.map((count, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
-              <span className="w-3 text-muted-foreground">{isQuiz ? i : i + 1}</span>
+              <span className="w-6 text-muted-foreground">{stats.distributionLabels?.[i] ?? (isQuiz ? i : i + 1)}</span>
               <div
                 className="h-5 rounded bg-primary/70 text-primary-foreground flex items-center justify-end px-1.5 font-medium min-w-[1.5rem]"
                 style={{ width: `${(count / maxDistribution) * 100}%` }}

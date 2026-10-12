@@ -5,6 +5,32 @@ import { requireAuth, requireCaptain } from '../middleware/auth'
 import { computeGeneralRanking } from '../lib/generalRanking'
 import { COUNTRY_NAMES } from '../lib/countries'
 import { TRIVIA_CATEGORIES, WORDLE_WORDS, type TriviaCategory } from '../lib/minigameContent'
+import {
+  GameError,
+  QUIZ_LENGTH,
+  dayKey,
+  getOrCreatePuzzle,
+  getPlay,
+  hashString,
+  nextResetAt,
+  quizWinThreshold,
+  savePlay,
+  seededRandom,
+  shiftDay,
+  shuffle,
+  type GameInfo,
+  type QuizPuzzle,
+  type QuizQuestion,
+} from '../lib/minigameCore'
+import {
+  EXTRA_GAMES,
+  buildExtraQuiz,
+  distributionSpec,
+  extraMove,
+  extraState,
+  getCrestIdForToday,
+  isExtraKind,
+} from '../lib/minigameGames'
 
 const router = Router()
 
@@ -13,22 +39,7 @@ const router = Router()
 // y cada integrante lo puede jugar una sola vez hasta el día siguiente.
 // ---------------------------------------------------------------------------
 
-type GameKind = 'guess-member' | 'quiz' | 'wordle'
-type GameCategory = 'clan' | 'futbol' | 'osm' | 'competencias'
-
-interface GameInfo {
-  id: string
-  name: string
-  description: string
-  category: GameCategory
-  kind: GameKind
-  maxAttempts: number
-  triviaCategory?: TriviaCategory
-}
-
-const QUIZ_LENGTH = 5
-
-const GAMES: GameInfo[] = [
+const BASE_GAMES: GameInfo[] = [
   {
     id: 'adivina-integrante',
     name: 'Adivina el integrante',
@@ -90,124 +101,12 @@ const GAMES: GameInfo[] = [
   },
 ]
 
+// Los juegos de preguntas se puntúan sobre 5.
+const GAMES: GameInfo[] = [...BASE_GAMES, ...EXTRA_GAMES].map((g) =>
+  g.kind === 'quiz' ? { ...g, scoreMax: QUIZ_LENGTH } : g
+)
+
 const GAMES_BY_ID = new Map(GAMES.map((g) => [g.id, g]))
-
-// ---------------------------------------------------------------------------
-// Utilidades de día y aleatoriedad determinística
-// ---------------------------------------------------------------------------
-
-// El "día" del juego corta a medianoche de UTC-6 (hora de México, sin
-// horario de verano), para que el reto cambie a una hora sensata para el
-// clan y sea el mismo para todos sin importar su zona horaria.
-const DAY_OFFSET_MS = 6 * 60 * 60 * 1000
-
-function dayKey(now = new Date()): string {
-  return new Date(now.getTime() - DAY_OFFSET_MS).toISOString().slice(0, 10)
-}
-
-function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split('-').map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  dt.setUTCDate(dt.getUTCDate() + delta)
-  return dt.toISOString().slice(0, 10)
-}
-
-function nextResetAt(day: string): string {
-  const [y, m, d] = shiftDay(day, 1).split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d) + DAY_OFFSET_MS).toISOString()
-}
-
-function hashString(text: string): number {
-  let hash = 2166136261
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
-
-function seededRandom(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-function shuffle<T>(items: T[], rand: () => number): T[] {
-  const copy = [...items]
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1))
-    ;[copy[i], copy[j]] = [copy[j], copy[i]]
-  }
-  return copy
-}
-
-// El reto del día se guarda la primera vez que alguien lo abre, para que no
-// cambie aunque el roster, los reportes o el banco de preguntas cambien
-// durante el día. Si no hay contenido suficiente no se guarda nada, así se
-// genera en cuanto lo haya.
-async function getOrCreatePuzzle<T>(db: Client, game: string, day: string, build: () => Promise<T | null>): Promise<T | null> {
-  const read = async () =>
-    (await db.execute({ sql: 'SELECT puzzle_json FROM minigame_puzzles WHERE game = ? AND day = ?', args: [game, day] }))
-      .rows[0] as unknown as { puzzle_json: string } | undefined
-
-  const existing = await read()
-  if (existing) return JSON.parse(existing.puzzle_json) as T
-
-  const puzzle = await build()
-  if (!puzzle) return null
-  await db.execute({
-    sql: 'INSERT OR IGNORE INTO minigame_puzzles (game, day, puzzle_json) VALUES (?, ?, ?)',
-    args: [game, day, JSON.stringify(puzzle)],
-  })
-  const stored = await read()
-  return stored ? (JSON.parse(stored.puzzle_json) as T) : puzzle
-}
-
-interface PlayRow {
-  guesses_json: string
-  finished: number
-  won: number
-  score: number | null
-}
-
-async function getPlay(db: Client, memberId: number, game: string, day: string): Promise<PlayRow | undefined> {
-  return (
-    await db.execute({
-      sql: 'SELECT guesses_json, finished, won, score FROM minigame_plays WHERE member_id = ? AND game = ? AND day = ?',
-      args: [memberId, game, day],
-    })
-  ).rows[0] as unknown as PlayRow | undefined
-}
-
-async function savePlay(
-  db: Client,
-  memberId: number,
-  game: string,
-  day: string,
-  moves: unknown[],
-  finished: boolean,
-  won: boolean,
-  score: number | null
-) {
-  await db.execute({
-    sql: `INSERT INTO minigame_plays (member_id, game, day, guesses_json, finished, won, score, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-          ON CONFLICT(member_id, game, day) DO UPDATE SET
-            guesses_json = excluded.guesses_json,
-            finished = excluded.finished,
-            won = excluded.won,
-            score = excluded.score,
-            updated_at = CURRENT_TIMESTAMP`,
-    args: [memberId, game, day, JSON.stringify(moves), finished ? 1 : 0, won ? 1 : 0, score],
-  })
-}
-
-class GameError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Juego 1: Adivina el integrante
@@ -393,21 +292,6 @@ async function adivinaMove(db: Client, memberId: number, body: any) {
 // responde de a una y se muestra enseguida si estuvo bien. Se gana con 3+.
 // ---------------------------------------------------------------------------
 
-interface QuizQuestion {
-  prompt: string
-  options: string[]
-  correctIndex: number
-  explanation: string
-}
-
-interface QuizPuzzle {
-  questions: QuizQuestion[]
-}
-
-function quizWinThreshold(total: number) {
-  return Math.ceil(total * 0.8)
-}
-
 async function buildTriviaPuzzle(db: Client, game: GameInfo, day: string): Promise<QuizPuzzle | null> {
   const rows = (
     await db.execute({
@@ -505,7 +389,7 @@ async function getQuizPuzzle(db: Client, game: GameInfo, day: string): Promise<Q
   return getOrCreatePuzzle<QuizPuzzle>(db, game.id, day, () => {
     if (game.id === 'mayor-menor') return buildMayorMenorPuzzle(db, game, day)
     if (game.id === 'de-donde-es') return buildDeDondeEsPuzzle(db, game, day)
-    return buildTriviaPuzzle(db, game, day)
+    return buildExtraQuiz(db, game, day) ?? buildTriviaPuzzle(db, game, day)
   })
 }
 
@@ -715,16 +599,14 @@ async function gameStats(db: Client, game: GameInfo, memberId: number) {
   }
 
   const mine = byMember.get(memberId) ?? []
-  // Juegos de adivinar: en cuántos intentos se acertó. Juegos de preguntas:
-  // cuántas se respondieron bien (0 a 5).
-  const isQuiz = game.kind === 'quiz'
-  const distribution = Array.from({ length: isQuiz ? QUIZ_LENGTH + 1 : game.maxAttempts }, () => 0)
+  // Juegos de adivinar: en cuántos intentos se acertó. Juegos de aciertos
+  // (preguntas, contrarreloj, grilla): cuántos aciertos hubo.
+  const spec = distributionSpec(game)
+  const distribution = spec.labels.map(() => 0)
   for (const p of mine) {
     if (p.score === null || p.score === undefined) continue
-    const index = isQuiz ? Number(p.score) : Number(p.score) - 1
-    if (p.won || isQuiz) {
-      if (index >= 0 && index < distribution.length) distribution[index] += 1
-    }
+    const index = spec.index(Number(p.score), !!p.won)
+    if (index !== null && index >= 0 && index < distribution.length) distribution[index] += 1
   }
   const wins = mine.filter((p) => p.won).length
   const myStreaks = computeStreaks(
@@ -765,6 +647,8 @@ async function gameStats(db: Client, game: GameInfo, memberId: number) {
     currentStreak: myStreaks.currentStreak,
     maxStreak: myStreaks.maxStreak,
     distribution,
+    distributionLabels: spec.labels,
+    distributionTitle: spec.title,
     leaderboard,
   }
 }
@@ -951,8 +835,9 @@ router.get('/:game', requireAuth, async (req, res) => {
     const game = findGame(req.params.game)
     const db = getDatabase()
     const memberId = req.user!.id
-    const data =
-      game.kind === 'guess-member'
+    const data = isExtraKind(game)
+      ? await extraState(db, game, memberId)
+      : game.kind === 'guess-member'
         ? await adivinaState(db, memberId)
         : game.kind === 'wordle'
           ? await wordleState(db, game, memberId)
@@ -968,8 +853,9 @@ async function handleMove(req: any, res: any) {
     const game = findGame(req.params.game)
     const db = getDatabase()
     const memberId = req.user!.id
-    const data =
-      game.kind === 'guess-member'
+    const data = isExtraKind(game)
+      ? await extraMove(db, game, memberId, req.body)
+      : game.kind === 'guess-member'
         ? await adivinaMove(db, memberId, req.body)
         : game.kind === 'wordle'
           ? await wordleMove(db, game, memberId, req.body)
@@ -983,6 +869,25 @@ async function handleMove(req: any, res: any) {
 router.post('/:game/move', requireAuth, handleMove)
 // Ruta vieja del primer juego, se mantiene para no romper la página.
 router.post('/:game/guess', requireAuth, handleMove)
+
+// Escudo del día para "Escudo borroso": se sirve desde acá para no
+// exponer en el navegador la dirección (que tiene el id del club). El
+// pixelado lo hace la página.
+router.get('/:game/crest', requireAuth, async (req, res) => {
+  try {
+    const game = findGame(req.params.game)
+    if (game.id !== 'escudo-borroso') throw new GameError('Este juego no tiene escudo')
+    const crestId = await getCrestIdForToday(getDatabase(), game)
+    if (!crestId) return res.status(404).json({ success: false, error: 'Sin escudo para hoy' })
+    const upstream = await fetch(`https://crests.football-data.org/${crestId}.png`)
+    if (!upstream.ok) return res.status(502).json({ success: false, error: 'No se pudo cargar el escudo' })
+    res.setHeader('Content-Type', 'image/png')
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    res.send(Buffer.from(await upstream.arrayBuffer()))
+  } catch (error) {
+    sendError(res, error, 'Error cargando el escudo')
+  }
+})
 
 router.get('/:game/stats', requireAuth, async (req, res) => {
   try {
