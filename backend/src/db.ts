@@ -123,6 +123,20 @@ export async function initializeDatabase() {
   if (!clanMemberColumns.some((col) => col.name === 'notes')) {
     await db.execute(`ALTER TABLE clan_members ADD COLUMN notes TEXT NOT NULL DEFAULT ''`)
   }
+  // Carta "Conociendo al jugador" de cada integrante (imagen en
+  // /public/warriors). Se muestra al abrir su perfil y en la landing.
+  if (!clanMemberColumns.some((col) => col.name === 'card_url')) {
+    await db.execute(`ALTER TABLE clan_members ADD COLUMN card_url TEXT NOT NULL DEFAULT ''`)
+  }
+  for (const [name, url] of [
+    ['chicolinas', '/warriors/carta-chicolinas.jpeg'],
+    ['suazoperez', '/warriors/carta-suazoperez.jpeg'],
+  ]) {
+    await db.execute({
+      sql: `UPDATE clan_members SET card_url = ? WHERE LOWER(name) = ? AND card_url = ''`,
+      args: [url, name],
+    })
+  }
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS battle_results (

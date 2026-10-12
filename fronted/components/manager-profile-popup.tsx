@@ -26,6 +26,7 @@ interface ManagerProfile {
   username: string | null
   role: string | null
   notes: string
+  cardUrl: string
   stats: ManagerStats | null
 }
 
@@ -98,7 +99,11 @@ export function ManagerProfilePopup({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className={
+          profile?.cardUrl ? 'sm:max-w-4xl max-h-[92vh] overflow-y-auto' : 'max-w-md max-h-[92vh] overflow-y-auto'
+        }
+      >
         <DialogHeader>
           <DialogTitle>{name}</DialogTitle>
         </DialogHeader>
@@ -106,6 +111,18 @@ export function ManagerProfilePopup({
         {loading || !profile ? (
           <div className="py-6 text-center text-sm text-muted-foreground">{error || 'Cargando...'}</div>
         ) : (
+          <div className="space-y-5">
+          {/* Con carta: carta a la izquierda e info a la derecha. Sin carta,
+              solo la info. Las notas van abajo, a todo el ancho. */}
+          <div className={profile.cardUrl ? 'grid gap-5 md:grid-cols-[minmax(0,320px)_1fr] items-start' : ''}>
+            {profile.cardUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.cardUrl}
+                alt={`Carta de ${profile.name}`}
+                className="w-full max-w-[320px] mx-auto h-auto rounded-lg border border-border shadow-lg"
+              />
+            )}
           <div className="space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline" className="border-primary/40 text-primary">
@@ -157,10 +174,12 @@ export function ManagerProfilePopup({
             ) : (
               <p className="text-sm text-muted-foreground">Todavía no tiene reportes para calcular estadísticas.</p>
             )}
+          </div>
+          </div>
 
-            <div>
+            <div className="rounded-lg border border-border/60 bg-card/40 p-4">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-medium text-muted-foreground">Notas</p>
+                <p className="text-sm font-bold text-primary tracking-widest uppercase">Notas</p>
                 {isCaptain && !editingNotes && (
                   <button onClick={() => setEditingNotes(true)} className="text-xs text-primary hover:underline">
                     {profile.notes ? 'Editar' : 'Agregar'}

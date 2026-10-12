@@ -28,14 +28,17 @@ router.get('/', async (_req, res) => {
 
     // Clan de cada guerrero según el roster, para poder abrir su perfil
     // (notas) al hacer clic.
-    const roster = (await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados')`))
-      .rows as unknown as Array<{ name: string; clan: string }>
-    const clanBySlug = new Map(roster.map((r) => [slugifyUsername(r.name), r.clan]))
+    const roster = (
+      await db.execute(`SELECT name, clan, card_url FROM clan_members WHERE clan IN ('rayo', 'exiliados')`)
+    ).rows as unknown as Array<{ name: string; clan: string; card_url: string }>
+    const memberBySlug = new Map(roster.map((r) => [slugifyUsername(r.name), r]))
 
     const warriorsWithFlags = warriors.map((warrior) => ({
       ...warrior,
       flag: getCountryFlag(warrior.countryCode),
-      clan: clanBySlug.get(slugifyUsername(warrior.name)) ?? null,
+      clan: memberBySlug.get(slugifyUsername(warrior.name))?.clan ?? null,
+      // La carta puede estar cargada en el guerrero o en su ficha del roster.
+      cardUrl: warrior.cardUrl || memberBySlug.get(slugifyUsername(warrior.name))?.card_url || '',
     }))
 
     res.json({ success: true, data: warriorsWithFlags, count: warriorsWithFlags.length })

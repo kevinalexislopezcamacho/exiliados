@@ -16,10 +16,11 @@ interface ClanMemberRow {
   sort_order: number
   member_id: number | null
   notes: string
+  card_url: string
 }
 
 const SELECT_WITH_ACCOUNT = `
-  SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id, cm.notes,
+  SELECT cm.id, cm.name, cm.clan, cm.country_code, cm.title, cm.sort_order, cm.member_id, cm.notes, cm.card_url,
          m.username as username, m.has_password as hasPassword, m.role as role
   FROM clan_members cm
   LEFT JOIN members m ON m.id = cm.member_id
@@ -45,6 +46,7 @@ function toApiShape(row: ClanMemberRow & { username?: string | null; hasPassword
     hasPassword: row.hasPassword ? Boolean(row.hasPassword) : false,
     role: row.role ?? null,
     notes: row.notes ?? '',
+    cardUrl: row.card_url ?? '',
   }
 }
 
