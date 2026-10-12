@@ -883,7 +883,8 @@ router.get('/:game/crest', requireAuth, async (req, res) => {
     const upstream = await fetch(crestUrl, { headers: { 'User-Agent': 'exiliados-minijuegos/1.0 (sitio del clan)' } })
     if (!upstream.ok) return res.status(502).json({ success: false, error: 'No se pudo cargar el escudo' })
     res.setHeader('Content-Type', 'image/png')
-    res.setHeader('Cache-Control', 'private, max-age=3600')
+    // Sin caché: la dirección es la misma y el escudo cambia cada día.
+    res.setHeader('Cache-Control', 'no-store')
     res.send(Buffer.from(await upstream.arrayBuffer()))
   } catch (error) {
     sendError(res, error, 'Error cargando el escudo')

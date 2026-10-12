@@ -27,7 +27,7 @@ interface GuessState {
 
 // Dibuja el escudo achicado a `pixels` bloques de ancho y lo vuelve a
 // agrandar sin suavizado: queda pixelado. Sin pixels, se ve nítido.
-function PixelCrest({ game, pixels }: { game: string; pixels: number | null }) {
+function PixelCrest({ game, day, pixels }: { game: string; day: string; pixels: number | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [failed, setFailed] = useState(false)
@@ -36,8 +36,10 @@ function PixelCrest({ game, pixels }: { game: string; pixels: number | null }) {
     const image = new Image()
     image.onload = () => setImg(image)
     image.onerror = () => setFailed(true)
-    image.src = `/api/minigames/${game}/crest`
-  }, [game])
+    // El día va en la dirección: si no, el navegador mostraba el escudo de
+    // ayer guardado en caché.
+    image.src = `/api/minigames/${game}/crest?day=${day}`
+  }, [game, day])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -132,7 +134,7 @@ export default function AdivinanzaPage() {
                 </div>
               </div>
             ) : (
-              <PixelCrest game={gameId} pixels={state.clue.pixels} />
+              <PixelCrest game={gameId} day={state.day} pixels={state.clue.pixels} />
             )}
 
             {state.hints.length > 0 && (
