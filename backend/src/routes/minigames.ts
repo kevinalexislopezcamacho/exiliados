@@ -28,7 +28,7 @@ import {
   distributionSpec,
   extraMove,
   extraState,
-  getCrestIdForToday,
+  getCrestUrlForToday,
   isExtraKind,
 } from '../lib/minigameGames'
 
@@ -877,9 +877,10 @@ router.get('/:game/crest', requireAuth, async (req, res) => {
   try {
     const game = findGame(req.params.game)
     if (game.id !== 'escudo-borroso') throw new GameError('Este juego no tiene escudo')
-    const crestId = await getCrestIdForToday(getDatabase(), game)
-    if (!crestId) return res.status(404).json({ success: false, error: 'Sin escudo para hoy' })
-    const upstream = await fetch(`https://crests.football-data.org/${crestId}.png`)
+    const crestUrl = await getCrestUrlForToday(getDatabase(), game)
+    if (!crestUrl) return res.status(404).json({ success: false, error: 'Sin escudo para hoy' })
+    // Wikimedia pide un User-Agent identificable.
+    const upstream = await fetch(crestUrl, { headers: { 'User-Agent': 'exiliados-minijuegos/1.0 (sitio del clan)' } })
     if (!upstream.ok) return res.status(502).json({ success: false, error: 'No se pudo cargar el escudo' })
     res.setHeader('Content-Type', 'image/png')
     res.setHeader('Cache-Control', 'private, max-age=3600')

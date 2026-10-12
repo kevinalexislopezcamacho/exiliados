@@ -5,8 +5,11 @@ import {
   CAREERS,
   CRESTS,
   EXTRA_CLUB_NAMES,
+  CLUB_CREST_URLS,
+  GRID_CLUBS,
   GRID_PLAYERS,
   GRID_TAG_LABELS,
+  NATION_FLAG_CODES,
   WORLD_CUP_SCORERS,
   type GridPlayer,
   type GridTag,
@@ -427,8 +430,7 @@ function cellPlayers(puzzle: GridPuzzle, cell: number): GridPlayer[] {
 
 function gridCriteriaPool(): Criterion[] {
   const count = (fn: (p: GridPlayer) => boolean) => GRID_PLAYERS.filter(fn).length
-  const clubs = Array.from(new Set(GRID_PLAYERS.flatMap((p) => p.clubs)))
-    .filter((club) => count((p) => p.clubs.includes(club)) >= 6)
+  const clubs = GRID_CLUBS.filter((club) => CLUB_CREST_URLS[club] && count((p) => p.clubs.includes(club)) >= 6)
     .map((club): Criterion => ({ id: `club:${club}`, label: `Jugó en ${club}`, type: 'club', value: club }))
   const nations = Array.from(new Set(GRID_PLAYERS.map((p) => p.nation)))
     .filter((nation) => count((p) => p.nation === nation) >= 6)
@@ -439,17 +441,31 @@ function gridCriteriaPool(): Criterion[] {
   return [...clubs, ...nations, ...tags]
 }
 
+// Encabezado de fila/columna: escudo si es un club, bandera si es una
+// selección, y solo texto si es un logro.
+function criterionView(c: Criterion) {
+  const image =
+    c.type === 'club'
+      ? CLUB_CREST_URLS[c.value] ?? null
+      : c.type === 'nation' && NATION_FLAG_CODES[c.value]
+        ? `https://flagcdn.com/w160/${NATION_FLAG_CODES[c.value]}.png`
+        : null
+  return { label: c.type === 'club' ? c.value : c.label, type: c.type, image }
+}
+
 async function getGridPuzzle(db: Client, game: GameInfo, day: string) {
   return getOrCreatePuzzle<GridPuzzle>(db, game.id, day, async () => {
     const pool = gridCriteriaPool()
     const rand = seededRandom(hashString(`${game.id}:${day}`))
-    for (let attempt = 0; attempt < 5000; attempt++) {
-      const picked = shuffle(pool, rand).slice(0, 6)
-      const puzzle = { rows: picked.slice(0, 3), cols: picked.slice(3, 6) }
-      // Que no sea solo de clubes, y que cada casilla tenga al menos 2
-      // respuestas posibles.
-      if (picked.every((c) => c.type === 'club')) continue
-      if (Array.from({ length: 9 }, (_, cell) => cellPlayers(puzzle, cell).length).every((n) => n >= 2)) return puzzle
+    // Que no sea solo de clubes, y que cada casilla tenga al menos 3
+    // respuestas posibles (si algún día no sale, se acepta con 2).
+    for (const [minPerCell, tries] of [[3, 20000], [2, 5000]]) {
+      for (let attempt = 0; attempt < tries; attempt++) {
+        const picked = shuffle(pool, rand).slice(0, 6)
+        const puzzle = { rows: picked.slice(0, 3), cols: picked.slice(3, 6) }
+        if (picked.every((c) => c.type === 'club')) continue
+        if (Array.from({ length: 9 }, (_, cell) => cellPlayers(puzzle, cell).length).every((n) => n >= minPerCell)) return puzzle
+      }
     }
     return null
   })
@@ -471,8 +487,8 @@ async function gridState(db: Client, game: GameInfo, memberId: number) {
     empty: false as const,
     game,
     nextResetAt: nextResetAt(day),
-    rows: puzzle.rows.map((c) => c.label),
-    cols: puzzle.cols.map((c) => c.label),
+    rows: puzzle.rows.map(criterionView),
+    cols: puzzle.cols.map(criterionView),
     cells,
     attemptsUsed: guesses.length,
     maxAttempts: game.maxAttempts,
@@ -568,9 +584,9 @@ async function getGuessPuzzle(db: Client, game: GameInfo, day: string) {
   })
 }
 
-export async function getCrestIdForToday(db: Client, game: GameInfo): Promise<number | null> {
+export async function getCrestUrlForToday(db: Client, game: GameInfo): Promise<string | null> {
   const puzzle = await getGuessPuzzle(db, game, dayKey())
-  return CRESTS.find((c) => c.name === puzzle?.answer)?.crestId ?? null
+  return CRESTS.find((c) => c.name === puzzle?.answer)?.url ?? null
 }
 
 async function guessState(db: Client, game: GameInfo, memberId: number) {

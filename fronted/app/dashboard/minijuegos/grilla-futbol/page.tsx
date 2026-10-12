@@ -10,12 +10,39 @@ import { Flag } from 'lucide-react'
 
 const GAME = 'grilla-futbol'
 
+interface Criterion {
+  label: string
+  type: 'club' | 'nation' | 'tag'
+  image: string | null
+}
+
+// Encabezado: escudo del club o bandera del país, con el nombre abajo. Los
+// logros (Balón de Oro, campeón del mundo) van solo con texto.
+function CriterionHeader({ c }: { c: Criterion }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 text-center p-1">
+      {c.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={c.image}
+          alt={c.label}
+          loading="lazy"
+          className={c.type === 'nation' ? 'w-10 sm:w-12 h-auto rounded-sm shadow' : 'w-9 h-9 sm:w-12 sm:h-12 object-contain'}
+        />
+      ) : (
+        <span className="text-lg">{c.label.includes('Balón') ? '🥇' : '🏆'}</span>
+      )}
+      <span className="text-[10px] sm:text-xs font-bold text-primary leading-tight">{c.label}</span>
+    </div>
+  )
+}
+
 interface GridState {
   day: string
   empty: boolean
   nextResetAt: string
-  rows: string[]
-  cols: string[]
+  rows: Criterion[]
+  cols: Criterion[]
   cells: Array<string | null>
   attemptsUsed: number
   maxAttempts: number
@@ -67,13 +94,15 @@ export default function GrillaFutbolPage() {
             <div className="grid grid-cols-[minmax(0,0.8fr)_repeat(3,minmax(0,1fr))] gap-1.5 sm:gap-2">
               <div />
               {state.cols.map((c) => (
-                <div key={c} className="flex items-end justify-center text-center text-[11px] sm:text-sm font-bold text-primary p-1">
-                  {c}
+                <div key={c.label} className="flex items-end justify-center">
+                  <CriterionHeader c={c} />
                 </div>
               ))}
-              {state.rows.map((rowLabel, r) => (
-                <div key={rowLabel} className="contents">
-                  <div className="flex items-center text-[11px] sm:text-sm font-bold text-primary p-1">{rowLabel}</div>
+              {state.rows.map((row, r) => (
+                <div key={row.label} className="contents">
+                  <div className="flex items-center justify-center">
+                    <CriterionHeader c={row} />
+                  </div>
                   {[0, 1, 2].map((c) => {
                     const cell = r * 3 + c
                     const value = state.cells[cell]
@@ -115,8 +144,8 @@ export default function GrillaFutbolPage() {
               ) : (
                 <>
                   <p className="text-sm">
-                    <span className="text-primary font-medium">{state.rows[Math.floor(selected / 3)]}</span> +{' '}
-                    <span className="text-primary font-medium">{state.cols[selected % 3]}</span>
+                    <span className="text-primary font-medium">{state.rows[Math.floor(selected / 3)].label}</span> +{' '}
+                    <span className="text-primary font-medium">{state.cols[selected % 3].label}</span>
                   </p>
                   <MinigameSearch
                     options={state.players}
