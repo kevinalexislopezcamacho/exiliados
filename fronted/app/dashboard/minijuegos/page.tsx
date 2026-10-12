@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth/context'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { useCountdown } from '@/components/minigame-stats'
-import { ArrowLeft, Check, ChevronRight, Flame, ListChecks, Lock, X } from 'lucide-react'
+import { MinigameCover } from '@/components/minigame-covers'
+import { ArrowLeft, Check, Clock, Flame, ListChecks, Lock, Trophy, X } from 'lucide-react'
 
 interface GameSummary {
   id: string
@@ -31,14 +31,12 @@ interface Summary {
   dailyStreak: number
 }
 
-const CATEGORY_LABELS: Record<GameSummary['category'], string> = {
-  clan: 'Clan',
-  futbol: 'Fútbol',
-  osm: 'OSM',
-  competencias: 'Competencias',
-}
-
-const CATEGORY_ORDER: GameSummary['category'][] = ['clan', 'futbol', 'osm', 'competencias']
+const CATEGORIES: Array<{ id: GameSummary['category']; label: string; hint: string }> = [
+  { id: 'clan', label: 'Clan', hint: 'Rayo y Exiliados: ¿cuánto conocés a tu gente?' },
+  { id: 'futbol', label: 'Fútbol', hint: 'Jugadores, clubes, escudos y Mundiales' },
+  { id: 'osm', label: 'OSM', hint: 'Online Soccer Manager' },
+  { id: 'competencias', label: 'Competencias', hint: 'Torneos de la comunidad' },
+]
 
 function gameHref(game: GameSummary) {
   if (game.kind === 'quiz') return `/dashboard/minijuegos/quiz/${game.id}`
@@ -46,11 +44,89 @@ function gameHref(game: GameSummary) {
   return `/dashboard/minijuegos/${game.id}`
 }
 
-function statusLabel(game: GameSummary) {
-  if (!game.today.finished) return game.today.started ? 'En curso' : 'Sin jugar'
+function resultLabel(game: GameSummary) {
   if (game.scoreMax) return `${game.today.score ?? 0}/${game.scoreMax}`
   if (!game.today.won) return 'No acertaste'
-  return game.today.score ? `Acertaste en ${game.today.score}` : '¡Acertaste!'
+  return game.today.score ? `En ${game.today.score} intento${game.today.score === 1 ? '' : 's'}` : '¡Acertaste!'
+}
+
+// Tarjeta tipo portada: ilustración arriba y franja con el nombre abajo.
+// Las jugadas hoy quedan atenuadas con el resultado encima.
+function GameTile({ game, isCaptain }: { game: GameSummary; isCaptain: boolean }) {
+  const done = game.today.finished
+  const won = game.today.won
+
+  const tile = (
+    <div
+      className={`group relative h-full flex flex-col overflow-hidden rounded-2xl border bg-card transition-all duration-200 ${
+        game.available
+          ? 'hover:-translate-y-1 hover:border-primary hover:shadow-[0_8px_30px_-6px] hover:shadow-primary/50'
+          : 'opacity-60'
+      } ${done ? (won ? 'border-green-600/50' : 'border-destructive/50') : 'border-border'}`}
+    >
+      {/* Portada */}
+      <div className="relative aspect-[16/10] text-primary bg-[radial-gradient(ellipse_at_top,color-mix(in_oklch,var(--primary)_32%,transparent),transparent_70%)] bg-zinc-950">
+        <div className={`absolute inset-0 flex items-center justify-center p-3 transition-transform duration-300 group-hover:scale-105 ${done ? 'opacity-35' : ''}`}>
+          <MinigameCover id={game.id} />
+        </div>
+
+        {game.currentStreak > 0 && (
+          <span
+            className="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur px-2 py-0.5 text-xs font-bold text-amber-400 ring-1 ring-amber-400/40"
+            title="Racha actual"
+          >
+            <Flame className="w-3.5 h-3.5" /> {game.currentStreak}
+          </span>
+        )}
+
+        {done && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+            <span
+              className={`flex items-center justify-center w-11 h-11 rounded-full shadow-lg ${
+                won ? 'bg-green-600' : 'bg-destructive'
+              }`}
+            >
+              {won ? <Check className="w-6 h-6 text-white" /> : <X className="w-6 h-6 text-white" />}
+            </span>
+            <span className="rounded-full bg-black/75 px-2.5 py-0.5 text-xs font-bold text-white">{resultLabel(game)}</span>
+          </div>
+        )}
+
+        {!game.available && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Lock className="w-8 h-8 text-muted-foreground" />
+          </div>
+        )}
+      </div>
+
+      {/* Franja inferior */}
+      <div
+        className={`flex-1 flex flex-col items-center justify-center gap-0.5 px-2 py-2.5 text-center ${
+          done ? 'bg-muted/40' : 'bg-primary/90 group-hover:bg-primary'
+        } transition-colors`}
+      >
+        <span className={`text-sm sm:text-base font-black tracking-wider ${done ? 'text-muted-foreground' : 'text-primary-foreground'}`}>
+          {!game.available ? 'PRÓXIMAMENTE' : done ? 'VER RESULTADO' : game.today.started ? 'SEGUIR' : 'JUGAR'}
+        </span>
+        <span className={`text-xs sm:text-sm font-semibold leading-tight ${done ? 'text-foreground' : 'text-primary-foreground/90'}`}>
+          {game.name}
+        </span>
+      </div>
+    </div>
+  )
+
+  if (!game.available) {
+    return (
+      <div title={isCaptain ? 'Cargá preguntas en "Preguntas" para activarlo' : 'Los capitanes todavía no cargaron preguntas'}>
+        {tile}
+      </div>
+    )
+  }
+  return (
+    <Link href={gameHref(game)} title={game.description} className="block h-full">
+      {tile}
+    </Link>
+  )
 }
 
 export default function MinigamesPage() {
@@ -84,6 +160,8 @@ export default function MinigamesPage() {
   }
 
   const isCaptain = user.role === 'captain'
+  const available = summary?.games.filter((g) => g.available).length ?? 0
+  const progress = summary && available > 0 ? Math.min(1, summary.finishedToday / available) : 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
@@ -97,112 +175,82 @@ export default function MinigamesPage() {
             </Link>
             <div className="min-w-0">
               <h1 className="text-2xl font-bold text-primary">Minijuegos</h1>
-              <p className="text-sm text-muted-foreground">Un reto nuevo de cada juego por día · cuidá tu racha</p>
+              <p className="text-sm text-muted-foreground truncate">Un reto nuevo de cada juego por día · cuidá tu racha</p>
             </div>
           </div>
           {isCaptain && (
             <Link href="/dashboard/minijuegos/preguntas">
               <Button variant="outline" className="gap-2 border-primary/40 hover:bg-primary/10">
-                <ListChecks className="w-4 h-4" /> Preguntas
+                <ListChecks className="w-4 h-4" /> <span className="hidden sm:inline">Preguntas</span>
               </Button>
             </Link>
           )}
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-10 space-y-8">
+      <main className="container mx-auto px-4 py-8 space-y-10 max-w-6xl">
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-destructive text-sm">{error}</div>
         )}
 
+        {/* Resumen del día */}
+        <section className="relative overflow-hidden rounded-2xl border border-primary/30 bg-zinc-950 p-5 sm:p-6">
+          <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-primary/25 blur-3xl" aria-hidden="true" />
+          <div className="relative grid grid-cols-3 gap-3 sm:gap-6 text-center">
+            <div>
+              <p className="flex items-center justify-center gap-1 text-2xl sm:text-4xl font-black text-amber-400">
+                <Flame className="w-6 h-6 sm:w-8 sm:h-8" /> {summary?.dailyStreak ?? '–'}
+              </p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">días seguidos jugando</p>
+            </div>
+            <div>
+              <p className="flex items-center justify-center gap-1 text-2xl sm:text-4xl font-black text-primary">
+                <Trophy className="w-6 h-6 sm:w-8 sm:h-8" /> {summary ? `${summary.finishedToday}/${available}` : '–'}
+              </p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">retos de hoy</p>
+            </div>
+            <div>
+              <p className="flex items-center justify-center gap-1 text-2xl sm:text-4xl font-black font-mono text-white">
+                <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground" /> {countdown || '–'}
+              </p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">para los retos nuevos</p>
+            </div>
+          </div>
+          <div className="relative mt-5 h-2 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress * 100}%` }} />
+          </div>
+        </section>
+
         {!summary ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-36 rounded-lg bg-card/50 border border-border/50 animate-pulse" />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="aspect-[4/4] rounded-2xl bg-card/50 border border-border/50 animate-pulse" />
             ))}
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Card className="p-4 text-center">
-                <p className="text-3xl font-bold text-amber-500 flex items-center justify-center gap-1">
-                  <Flame className="w-7 h-7" /> {summary.dailyStreak}
-                </p>
-                <p className="text-xs text-muted-foreground">Días seguidos jugando</p>
-              </Card>
-              <Card className="p-4 text-center">
-                <p className="text-3xl font-bold text-primary">
-                  {summary.finishedToday}/{summary.games.filter((g) => g.available).length}
-                </p>
-                <p className="text-xs text-muted-foreground">Retos terminados hoy</p>
-              </Card>
-              <Card className="p-4 text-center">
-                <p className="text-3xl font-bold font-mono">{countdown}</p>
-                <p className="text-xs text-muted-foreground">Para los retos nuevos</p>
-              </Card>
-            </div>
-
-            {CATEGORY_ORDER.map((category) => {
-              const games = summary.games.filter((g) => g.category === category)
-              if (games.length === 0) return null
-              return (
-                <section key={category}>
-                  <h2 className="text-sm tracking-widest uppercase text-muted-foreground mb-3">
-                    {CATEGORY_LABELS[category]}
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {games.map((game) => (
-                      <Card
-                        key={game.id}
-                        className={`p-5 flex flex-col ${
-                          game.today.finished
-                            ? game.today.won
-                              ? 'border-green-500/40'
-                              : 'border-destructive/40'
-                            : 'border-primary/30 bg-gradient-to-br from-primary/5 to-transparent'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <h3 className="font-bold text-primary">{game.name}</h3>
-                          {game.currentStreak > 0 && (
-                            <span className="flex items-center gap-0.5 text-sm font-bold text-amber-500" title="Racha actual">
-                              <Flame className="w-4 h-4" /> {game.currentStreak}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-4 flex-1">{game.description}</p>
-
-                        {!game.available ? (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Lock className="w-4 h-4" />
-                            {isCaptain ? 'Sin preguntas todavía: cargalas en "Preguntas".' : 'Los capitanes todavía no cargaron preguntas.'}
-                          </div>
-                        ) : (
-                          <Link href={gameHref(game)}>
-                            <Button
-                              variant={game.today.finished ? 'outline' : 'default'}
-                              className="w-full justify-between"
-                            >
-                              <span className="flex items-center gap-2">
-                                {game.today.finished &&
-                                  (game.today.won ? (
-                                    <Check className="w-4 h-4 text-green-500" />
-                                  ) : (
-                                    <X className="w-4 h-4 text-destructive" />
-                                  ))}
-                                {game.today.finished ? statusLabel(game) : game.today.started ? 'Seguir jugando' : 'Jugar'}
-                              </span>
-                              <ChevronRight className="w-4 h-4" />
-                            </Button>
-                          </Link>
-                        )}
-                      </Card>
-                    ))}
+          CATEGORIES.map((category) => {
+            const games = summary.games.filter((g) => g.category === category.id)
+            if (games.length === 0) return null
+            const doneHere = games.filter((g) => g.today.finished).length
+            return (
+              <section key={category.id}>
+                <div className="flex items-end justify-between gap-3 mb-4">
+                  <div>
+                    <h2 className="text-lg font-black tracking-widest uppercase text-primary">{category.label}</h2>
+                    <p className="text-xs text-muted-foreground">{category.hint}</p>
                   </div>
-                </section>
-              )
-            })}
-          </>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {doneHere}/{games.length} jugados
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {games.map((game) => (
+                    <GameTile key={game.id} game={game} isCaptain={isCaptain} />
+                  ))}
+                </div>
+              </section>
+            )
+          })
         )}
       </main>
     </div>
