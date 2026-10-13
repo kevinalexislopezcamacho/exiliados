@@ -128,14 +128,20 @@ export async function initializeDatabase() {
   if (!clanMemberColumns.some((col) => col.name === 'card_url')) {
     await db.execute(`ALTER TABLE clan_members ADD COLUMN card_url TEXT NOT NULL DEFAULT ''`)
   }
-  for (const [name, url] of [
-    ['chicolinas', '/warriors/carta-chicolinas.jpeg'],
-    ['suazoperez', '/warriors/carta-suazoperez.jpeg'],
-  ]) {
-    await db.execute({
-      sql: `UPDATE clan_members SET card_url = ? WHERE LOWER(name) = ? AND card_url = ''`,
-      args: [url, name],
-    })
+  // Se identifica por el nombre normalizado (como el usuario), así no
+  // importan mayúsculas, acentos ni símbolos como el 变 de César.
+  const cardsBySlug: Record<string, string> = {
+    chicolinas: '/warriors/carta-chicolinas.jpeg',
+    suazoperez: '/warriors/carta-suazoperez.jpeg',
+    exicesar245: '/warriors/carta-exicesar.jpeg',
+  }
+  const cardRows = (await db.execute(`SELECT id, name FROM clan_members WHERE card_url = ''`)).rows as unknown as Array<{
+    id: number
+    name: string
+  }>
+  for (const row of cardRows) {
+    const url = cardsBySlug[slugifyUsername(row.name)]
+    if (url) await db.execute({ sql: 'UPDATE clan_members SET card_url = ? WHERE id = ?', args: [url, row.id] })
   }
 
   await db.execute(`
