@@ -30,6 +30,7 @@ import {
   extraState,
   getCrestUrlForToday,
   isExtraKind,
+  timedLevelOf,
 } from '../lib/minigameGames'
 
 const router = Router()
@@ -605,7 +606,7 @@ async function gameStats(db: Client, game: GameInfo, memberId: number) {
   const distribution = spec.labels.map(() => 0)
   for (const p of mine) {
     if (p.score === null || p.score === undefined) continue
-    const index = spec.index(Number(p.score), !!p.won)
+    const index = spec.index(Number(p.score), !!p.won, p.guesses_json)
     if (index !== null && index >= 0 && index < distribution.length) distribution[index] += 1
   }
   const wins = mine.filter((p) => p.won).length
@@ -791,6 +792,8 @@ router.get('/', requireAuth, async (req, res) => {
               won: !!today.won,
               // Partidas viejas de "adivina" se guardaron sin score: se usa la cantidad de intentos.
               score: today.score ?? (today.won ? (JSON.parse(today.guesses_json) as unknown[]).length : null),
+              // En el contrarreloj el total depende de la dificultad elegida.
+              ...(game.kind === 'timed' ? { scoreMax: timedLevelOf(today.guesses_json).total } : {}),
             }
           : { started: false, finished: false, won: false, score: null },
         currentStreak: streaks.currentStreak,

@@ -37,8 +37,6 @@ import {
 // goles) reutilizan el motor de quiz de minigames.ts; el resto tiene su
 // propio estado y jugada acá.
 
-const TIMED_TOTAL = 20
-const TIMED_LIMIT_MS = 30_000
 // Margen para la latencia: la respuesta puede llegar un poco después de
 // que el reloj del navegador marque 0.
 const TIMED_GRACE_MS = 5_000
@@ -58,11 +56,10 @@ export const EXTRA_GAMES: GameInfo[] = [
   {
     id: 'rayo-o-exi',
     name: '¿Rayo o Exi?',
-    description: '20 integrantes en 30 segundos: ¿de qué clan es cada uno? Se gana con 18 o más.',
+    description: 'Contrarreloj: ¿de qué clan es cada uno? Fácil, medio o difícil. Se gana con el 90%.',
     category: 'clan',
     kind: 'timed',
     maxAttempts: 1,
-    scoreMax: TIMED_TOTAL,
   },
   {
     id: 'alineacion-ganadora',
@@ -299,48 +296,117 @@ interface TimedPuzzle {
   members: Array<{ name: string; clan: string }>
 }
 
+export type TimedDifficulty = 'facil' | 'medio' | 'dificil'
+
+// Se elige al empezar; cualquiera cuenta como la única partida del día.
+export const TIMED_LEVELS: Record<TimedDifficulty, { label: string; total: number; seconds: number }> = {
+  facil: { label: 'Fácil', total: 20, seconds: 30 },
+  medio: { label: 'Medio', total: 25, seconds: 25 },
+  dificil: { label: 'Difícil', total: 30, seconds: 20 },
+}
+
 interface TimedMoves {
   startedAt: number
   answers: Array<string | null> | null
+  // Las partidas viejas no lo tienen: eran "fácil".
+  difficulty?: TimedDifficulty
+  // Cuántos integrantes tuvo de verdad (por si el roster era más chico).
+  total?: number
+}
+
+export function timedLevelOf(movesJson: string) {
+  try {
+    const moves = JSON.parse(movesJson) as TimedMoves
+    const key: TimedDifficulty = moves.difficulty && TIMED_LEVELS[moves.difficulty] ? moves.difficulty : 'facil'
+    return { key, ...TIMED_LEVELS[key], total: moves.total ?? TIMED_LEVELS[key].total }
+  } catch {
+    return { key: 'facil' as TimedDifficulty, ...TIMED_LEVELS.facil }
+  }
 }
 
 async function getTimedPuzzle(db: Client, game: GameInfo, day: string) {
-  return getOrCreatePuzzle<TimedPuzzle>(db, game.id, day, async () => {
+  const puzzle = await getOrCreatePuzzle<TimedPuzzle>(db, game.id, day, async () => {
     const rows = (
       await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados') ORDER BY id ASC`)
     ).rows as unknown as Array<{ name: string; clan: string }>
     if (rows.length < 10) return null
     const rand = seededRandom(hashString(`${game.id}:${day}`))
-    return { members: shuffle(rows, rand).slice(0, TIMED_TOTAL).map((r) => ({ name: r.name, clan: r.clan })) }
+    // Se guardan hasta 30 (el difícil); fácil y medio usan los primeros.
+    return {
+      members: shuffle(rows, rand)
+        .slice(0, TIMED_LEVELS.dificil.total)
+        .map((r) => ({ name: r.name, clan: r.clan })),
+    }
   })
+  // Retos guardados antes de que hubiera dificultades tienen solo 20: se
+  // completan hasta 30 sin tocar los que ya estaban (para quien ya jugó).
+  if (puzzle && puzzle.members.length < TIMED_LEVELS.dificil.total) {
+    const rows = (
+      await db.execute(`SELECT name, clan FROM clan_members WHERE clan IN ('rayo', 'exiliados') ORDER BY id ASC`)
+    ).rows as unknown as Array<{ name: string; clan: string }>
+    const used = new Set(puzzle.members.map((m) => m.name))
+    const extra = shuffle(
+      rows.filter((r) => !used.has(r.name)),
+      seededRandom(hashString(`${game.id}:${day}:extra`))
+    ).slice(0, TIMED_LEVELS.dificil.total - puzzle.members.length)
+    if (extra.length > 0) {
+      puzzle.members.push(...extra.map((r) => ({ name: r.name, clan: r.clan })))
+      await db.execute({
+        sql: 'UPDATE minigame_puzzles SET puzzle_json = ? WHERE game = ? AND day = ?',
+        args: [JSON.stringify(puzzle), game.id, day],
+      })
+    }
+  }
+  return puzzle
 }
 
 function timedWinThreshold(total: number) {
   return Math.ceil(total * 0.9)
 }
 
+function levelMembers(puzzle: TimedPuzzle, difficulty: TimedDifficulty) {
+  return puzzle.members.slice(0, TIMED_LEVELS[difficulty].total)
+}
+
 async function timedState(db: Client, game: GameInfo, memberId: number) {
   const day = dayKey()
   const puzzle = await getTimedPuzzle(db, game, day)
   if (!puzzle) return { day, empty: true as const, game }
-  const total = puzzle.members.length
   const base = {
     day,
     empty: false as const,
     game,
     nextResetAt: nextResetAt(day),
-    total,
-    timeLimitSec: TIMED_LIMIT_MS / 1000,
-    winThreshold: timedWinThreshold(total),
+    levels: (Object.keys(TIMED_LEVELS) as TimedDifficulty[]).map((key) => {
+      const total = Math.min(TIMED_LEVELS[key].total, puzzle.members.length)
+      return {
+        key,
+        label: TIMED_LEVELS[key].label,
+        total,
+        seconds: TIMED_LEVELS[key].seconds,
+        winThreshold: timedWinThreshold(total),
+      }
+    }),
   }
 
   const play = await getPlay(db, memberId, game.id, day)
   if (!play) return { ...base, started: false, finished: false, won: false }
 
   const moves = JSON.parse(play.guesses_json) as TimedMoves
+  const difficulty = timedLevelOf(play.guesses_json).key
+  const members = levelMembers(puzzle, difficulty)
+  const limitMs = TIMED_LEVELS[difficulty].seconds * 1000
+  const level = {
+    difficulty,
+    difficultyLabel: TIMED_LEVELS[difficulty].label,
+    total: members.length,
+    timeLimitSec: TIMED_LEVELS[difficulty].seconds,
+    winThreshold: timedWinThreshold(members.length),
+  }
+
   // Si empezó y nunca mandó las respuestas (cerró la página), la partida
   // se da por terminada con lo que haya: nada.
-  if (!play.finished && Date.now() > moves.startedAt + TIMED_LIMIT_MS + TIMED_GRACE_MS * 3) {
+  if (!play.finished && Date.now() > moves.startedAt + limitMs + TIMED_GRACE_MS * 3) {
     await savePlay(db, memberId, game.id, day, { ...moves, answers: [] }, true, false, 0)
     return timedState(db, game, memberId)
   }
@@ -348,22 +414,24 @@ async function timedState(db: Client, game: GameInfo, memberId: number) {
   if (!play.finished) {
     return {
       ...base,
+      ...level,
       started: true,
       finished: false,
       won: false,
-      names: puzzle.members.map((m) => m.name),
-      remainingMs: Math.max(0, moves.startedAt + TIMED_LIMIT_MS - Date.now()),
+      names: members.map((m) => m.name),
+      remainingMs: Math.max(0, moves.startedAt + limitMs - Date.now()),
     }
   }
 
   const answers = moves.answers ?? []
   return {
     ...base,
+    ...level,
     started: true,
     finished: true,
     won: !!play.won,
     score: play.score ?? 0,
-    results: puzzle.members.map((m, i) => ({
+    results: members.map((m, i) => ({
       name: m.name,
       clan: m.clan,
       chosen: answers[i] ?? null,
@@ -380,22 +448,27 @@ async function timedMove(db: Client, game: GameInfo, memberId: number, body: any
   if (play?.finished) throw new GameError('Ya terminaste este reto, volvé mañana')
 
   if (body?.action === 'start') {
-    if (!play) await savePlay(db, memberId, game.id, day, { startedAt: Date.now(), answers: null }, false, false, null)
+    const difficulty: TimedDifficulty = TIMED_LEVELS[body?.difficulty as TimedDifficulty] ? body.difficulty : 'facil'
+    if (!play) {
+      await savePlay(db, memberId, game.id, day, { startedAt: Date.now(), answers: null, difficulty }, false, false, null)
+    }
     return timedState(db, game, memberId)
   }
 
   if (body?.action !== 'finish' || !play) throw new GameError('Primero tenés que empezar la partida')
   const moves = JSON.parse(play.guesses_json) as TimedMoves
-  const late = Date.now() > moves.startedAt + TIMED_LIMIT_MS + TIMED_GRACE_MS
+  const difficulty = timedLevelOf(play.guesses_json).key
+  const members = levelMembers(puzzle, difficulty)
+  const late = Date.now() > moves.startedAt + TIMED_LEVELS[difficulty].seconds * 1000 + TIMED_GRACE_MS
   const raw = Array.isArray(body?.answers) ? body.answers : []
-  const answers = puzzle.members.map((_, i) => {
+  const answers = members.map((_, i) => {
     const a = raw[i]
     return a === 'rayo' || a === 'exiliados' ? a : null
   })
   // Fuera de tiempo no cuenta ninguna respuesta.
-  const score = late ? 0 : answers.filter((a, i) => a === puzzle.members[i].clan).length
-  const won = score >= timedWinThreshold(puzzle.members.length)
-  await savePlay(db, memberId, game.id, day, { ...moves, answers: late ? [] : answers }, true, won, score)
+  const score = late ? 0 : answers.filter((a, i) => a === members[i].clan).length
+  const won = score >= timedWinThreshold(members.length)
+  await savePlay(db, memberId, game.id, day, { ...moves, answers: late ? [] : answers, total: members.length }, true, won, score)
   return timedState(db, game, memberId)
 }
 
@@ -673,7 +746,7 @@ export function extraMove(db: Client, game: GameInfo, memberId: number, body: an
 export function distributionSpec(game: GameInfo): {
   title: string
   labels: string[]
-  index: (score: number, won: boolean) => number | null
+  index: (score: number, won: boolean, movesJson: string) => number | null
 } {
   if (game.kind === 'quiz') {
     return {
@@ -684,9 +757,9 @@ export function distributionSpec(game: GameInfo): {
   }
   if (game.kind === 'timed') {
     return {
-      title: `Aciertos por partida (de ${TIMED_TOTAL})`,
-      labels: ['≤15', '16', '17', '18', '19', '20'],
-      index: (score) => Math.max(0, score - 15),
+      title: 'Partidas por dificultad',
+      labels: ['Fácil ✓', 'Medio ✓', 'Difícil ✓', 'Perdidas'],
+      index: (_score, won, movesJson) => (won ? ['facil', 'medio', 'dificil'].indexOf(timedLevelOf(movesJson).key) : 3),
     }
   }
   if (game.kind === 'grid') {

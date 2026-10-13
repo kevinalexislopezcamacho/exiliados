@@ -14,6 +14,10 @@ interface TimedState {
   day: string
   empty: boolean
   nextResetAt: string
+  levels: Array<{ key: 'facil' | 'medio' | 'dificil'; label: string; total: number; seconds: number; winThreshold: number }>
+  // Los siguientes vienen una vez elegida la dificultad.
+  difficulty?: 'facil' | 'medio' | 'dificil'
+  difficultyLabel?: string
   total: number
   timeLimitSec: number
   winThreshold: number
@@ -92,7 +96,7 @@ export default function RayoOExiPage() {
 
   const shareText =
     state?.finished && state.results
-      ? `¿Rayo o Exi? · EXILIADOS ${state.day}\n${state.score}/${state.total}\n` +
+      ? `¿Rayo o Exi? · EXILIADOS ${state.day}\n${state.difficultyLabel} · ${state.score}/${state.total}\n` +
         state.results.map((r) => (r.ok ? '🟩' : '🟥')).join('')
       : ''
 
@@ -104,22 +108,41 @@ export default function RayoOExiPage() {
       {state && !state.empty && !state.started && (
         <Card className="p-8 text-center space-y-4">
           <Timer className="w-10 h-10 mx-auto text-primary" />
-          <p className="text-lg font-semibold">
-            {state.total} integrantes · {state.timeLimitSec} segundos
-          </p>
+          <p className="text-lg font-semibold">Elegí la dificultad</p>
           <p className="text-sm text-muted-foreground">
-            Van apareciendo de a uno: tocá <b>Rayo</b> o <b>Exiliados</b> (o usá las flechas ← →). Se gana con{' '}
-            {state.winThreshold} o más correctas. Una vez que empezás, el reloj no se detiene.
+            Van apareciendo de a uno: tocá <b>Rayo</b> o <b>Exiliados</b> (o usá las flechas ← →). Se gana con el 90%
+            de aciertos. Tenés <b>una sola partida por día</b>, elijas la que elijas, y una vez que empezás el reloj
+            no se detiene.
           </p>
-          <Button size="lg" disabled={busy} onClick={() => move({ action: 'start' })}>
-            Empezar
-          </Button>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            {state.levels.map((level, i) => (
+              <button
+                key={level.key}
+                disabled={busy}
+                onClick={() => move({ action: 'start', difficulty: level.key })}
+                className={`rounded-xl border-2 p-4 transition-colors disabled:opacity-50 ${
+                  i === 0
+                    ? 'border-green-600/60 hover:bg-green-600/10'
+                    : i === 1
+                      ? 'border-amber-500/60 hover:bg-amber-500/10'
+                      : 'border-primary/70 hover:bg-primary/10'
+                }`}
+              >
+                <p className="text-lg font-black">{level.label}</p>
+                <p className="text-sm text-muted-foreground">
+                  {level.total} integrantes · {level.seconds}s
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Ganás con {level.winThreshold}+</p>
+              </button>
+            ))}
+          </div>
         </Card>
       )}
 
       {playing && state.names && (
         <Card className="p-6 space-y-5">
           <div className="flex items-center justify-between text-sm">
+            <span className="text-xs font-bold uppercase tracking-wider text-primary">{state.difficultyLabel}</span>
             <span className="text-muted-foreground">
               {Math.min(current === -1 ? state.names.length : current + 1, state.names.length)}/{state.names.length}
             </span>

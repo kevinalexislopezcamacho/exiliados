@@ -18,7 +18,7 @@ interface GameSummary {
   maxAttempts: number
   scoreMax?: number
   available: boolean
-  today: { started: boolean; finished: boolean; won: boolean; score: number | null }
+  today: { started: boolean; finished: boolean; won: boolean; score: number | null; scoreMax?: number }
   currentStreak: number
   maxStreak: number
 }
@@ -45,7 +45,8 @@ function gameHref(game: GameSummary) {
 }
 
 function resultLabel(game: GameSummary) {
-  if (game.scoreMax) return `${game.today.score ?? 0}/${game.scoreMax}`
+  const max = game.today.scoreMax ?? game.scoreMax
+  if (max) return `${game.today.score ?? 0}/${max}`
   if (!game.today.won) return 'No acertaste'
   return game.today.score ? `En ${game.today.score} intento${game.today.score === 1 ? '' : 's'}` : '¡Acertaste!'
 }
