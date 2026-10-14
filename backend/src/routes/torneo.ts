@@ -1,7 +1,8 @@
 import { Router } from 'express'
+import type { Client } from '@libsql/client'
 import { getDatabase } from '../db'
-import { requireAuth, requireCaptain } from '../middleware/auth'
-import { GameError } from '../lib/minigameCore'
+import { requireAuth, requireCaptain, requireSuperAdmin } from '../middleware/auth'
+import { dayKey, GameError } from '../lib/minigameCore'
 import {
   STAGE_LABELS,
   computeStandings,
@@ -15,7 +16,18 @@ import {
   TOTAL_PLAYERS,
   type Participante,
   type Partido,
+  type Torneo,
 } from '../lib/torneo'
+import {
+  QUESTIONS_PER_ROUND,
+  advanceTorneo,
+  answerQuestion,
+  getMatchPuzzle,
+  getPlayProgress,
+  isMatchOpen,
+  matchBreakdown,
+  startOrResume,
+} from '../lib/torneoPartidos'
 
 const router = Router()
 
@@ -25,21 +37,67 @@ function sendError(res: any, error: unknown, fallback: string) {
   return res.status(500).json({ success: false, error: fallback })
 }
 
+const num = (v: unknown) => (v === null || v === undefined ? null : Number(v))
+
+function partidoView(m: Partido) {
+  return {
+    id: Number(m.id),
+    stage: m.stage,
+    stageLabel: STAGE_LABELS[m.stage],
+    group: m.group_letter,
+    matchday: num(m.matchday),
+    bracketPos: num(m.bracket_pos),
+    homeSlot: num(m.home_slot),
+    awaySlot: num(m.away_slot),
+    homeLabel: m.home_label,
+    awayLabel: m.away_label,
+    opensDay: m.opens_day,
+    closesDay: m.closes_day,
+    status: m.status,
+    homeGoals: num(m.home_goals),
+    awayGoals: num(m.away_goals),
+    homePens: num(m.home_pens),
+    awayPens: num(m.away_pens),
+    winnerSlot: num(m.winner_slot),
+  }
+}
+
+function participanteView(p: Participante) {
+  return {
+    slot: Number(p.slot),
+    memberId: num(p.member_id),
+    isBot: p.member_id === null,
+    name: p.name,
+    countryCode: p.country_code,
+    clan: p.clan,
+    pot: Number(p.pot),
+    group: p.group_letter,
+    groupPos: Number(p.group_pos),
+  }
+}
+
+async function loadTorneoData(db: Client, torneo: Torneo) {
+  const participantes = (
+    await db.execute({ sql: 'SELECT * FROM torneo_participantes WHERE torneo_id = ? ORDER BY slot ASC', args: [torneo.id] })
+  ).rows as unknown as Participante[]
+  const partidos = (
+    await db.execute({ sql: 'SELECT * FROM torneo_partidos WHERE torneo_id = ? ORDER BY opens_day ASC, id ASC', args: [torneo.id] })
+  ).rows as unknown as Partido[]
+  return { participantes, partidos }
+}
+
 // GET /api/torneo - Estado completo del torneo actual para la página.
 router.get('/', requireAuth, async (req, res) => {
   try {
     const db = getDatabase()
-    const torneo = await getCurrentTorneo(db)
-    if (!torneo) return res.json({ success: true, data: { torneo: null } })
+    let torneo = await getCurrentTorneo(db)
+    if (!torneo) return res.json({ success: true, data: { torneo: null, isOrganizer: req.user?.username === 'chicolinas' } })
+    await advanceTorneo(db, torneo)
+    torneo = (await getCurrentTorneo(db))!
     const memberId = req.user!.id
 
     const inscritos = await listInscritos(db, torneo.id)
-    const participantes = (
-      await db.execute({ sql: 'SELECT * FROM torneo_participantes WHERE torneo_id = ? ORDER BY slot ASC', args: [torneo.id] })
-    ).rows as unknown as Participante[]
-    const partidos = (
-      await db.execute({ sql: 'SELECT * FROM torneo_partidos WHERE torneo_id = ? ORDER BY opens_day ASC, id ASC', args: [torneo.id] })
-    ).rows as unknown as Partido[]
+    const { participantes, partidos } = await loadTorneoData(db, torneo)
     const drawSeen = !!(
       await db.execute({
         sql: 'SELECT 1 FROM torneo_sorteo_visto WHERE torneo_id = ? AND member_id = ?',
@@ -47,7 +105,27 @@ router.get('/', requireAuth, async (req, res) => {
       })
     ).rows[0]
 
-    const mySlot = participantes.find((p) => Number(p.member_id) === memberId)?.slot ?? null
+    const mySlotRaw = participantes.find((p) => Number(p.member_id) === memberId)?.slot
+    const mySlot = mySlotRaw === undefined ? null : Number(mySlotRaw)
+    const today = dayKey()
+    const myMatches = mySlot === null ? [] : partidos.filter((m) => Number(m.home_slot) === mySlot || Number(m.away_slot) === mySlot)
+    const nextMatch = myMatches.find((m) => m.status === 'pendiente')
+    let nextMatchView = null
+    if (nextMatch) {
+      const progress = await getPlayProgress(db, Number(nextMatch.id), mySlot!)
+      nextMatchView = { ...partidoView(nextMatch), open: isMatchOpen(nextMatch, today), myFinished: progress.finished, myStarted: progress.started }
+    }
+    const final = partidos.find((m) => m.stage === 'F')
+    const third = partidos.find((m) => m.stage === '3P')
+    const podium =
+      torneo.status === 'finalizado' && final && third
+        ? {
+            champion: num(final.winner_slot),
+            runnerUp: num(Number(final.winner_slot) === Number(final.home_slot) ? final.away_slot : final.home_slot),
+            third: num(third.winner_slot),
+          }
+        : null
+
     res.json({
       success: true,
       data: {
@@ -58,44 +136,19 @@ router.get('/', requireAuth, async (req, res) => {
           startDay: torneo.start_day,
           totalPlayers: TOTAL_PLAYERS,
         },
+        today,
+        isOrganizer: req.user?.username === 'chicolinas',
         canJoin: req.user?.clan === 'rayo' || req.user?.clan === 'exiliados' || req.user?.role === 'captain',
         inscritos,
         meInscrito: inscritos.some((i) => i.memberId === memberId),
-        participantes: participantes.map((p) => ({
-          slot: Number(p.slot),
-          memberId: p.member_id === null ? null : Number(p.member_id),
-          isBot: p.member_id === null,
-          name: p.name,
-          countryCode: p.country_code,
-          clan: p.clan,
-          pot: Number(p.pot),
-          group: p.group_letter,
-          groupPos: Number(p.group_pos),
-        })),
+        participantes: participantes.map(participanteView),
         drawOrder: torneo.draw_json ? (JSON.parse(torneo.draw_json) as number[]) : [],
         drawSeen,
-        mySlot: mySlot === null ? null : Number(mySlot),
+        mySlot,
+        nextMatch: nextMatchView,
+        podium,
         grupos: participantes.length > 0 ? computeStandings(participantes, partidos) : {},
-        partidos: partidos.map((m) => ({
-          id: Number(m.id),
-          stage: m.stage,
-          stageLabel: STAGE_LABELS[m.stage],
-          group: m.group_letter,
-          matchday: m.matchday === null ? null : Number(m.matchday),
-          bracketPos: m.bracket_pos === null ? null : Number(m.bracket_pos),
-          homeSlot: m.home_slot === null ? null : Number(m.home_slot),
-          awaySlot: m.away_slot === null ? null : Number(m.away_slot),
-          homeLabel: m.home_label,
-          awayLabel: m.away_label,
-          opensDay: m.opens_day,
-          closesDay: m.closes_day,
-          status: m.status,
-          homeGoals: m.home_goals === null ? null : Number(m.home_goals),
-          awayGoals: m.away_goals === null ? null : Number(m.away_goals),
-          homePens: m.home_pens === null ? null : Number(m.home_pens),
-          awayPens: m.away_pens === null ? null : Number(m.away_pens),
-          winnerSlot: m.winner_slot === null ? null : Number(m.winner_slot),
-        })),
+        partidos: partidos.map(partidoView),
       },
     })
   } catch (error) {
@@ -113,8 +166,8 @@ router.post('/', requireCaptain, async (req, res) => {
   }
 })
 
-// DELETE /api/torneo/:id - Borrar (cancelar) un torneo con todo lo suyo (capitanes).
-router.delete('/:id', requireCaptain, async (req, res) => {
+// DELETE /api/torneo/:id - Cancelar el torneo con todo lo suyo (solo chicolinas).
+router.delete('/:id', requireSuperAdmin, async (req, res) => {
   try {
     await deleteTorneo(getDatabase(), Number(req.params.id))
     res.json({ success: true })
@@ -124,6 +177,7 @@ router.delete('/:id', requireCaptain, async (req, res) => {
 })
 
 // POST /api/torneo/inscripcion { inscribir: boolean } - Anotarse o bajarse.
+// Cuando se llenan los 32 lugares, el sorteo se hace solo.
 router.post('/inscripcion', requireAuth, async (req, res) => {
   try {
     const db = getDatabase()
@@ -132,14 +186,25 @@ router.post('/inscripcion', requireAuth, async (req, res) => {
     const allowed = req.user?.clan === 'rayo' || req.user?.clan === 'exiliados' || req.user?.role === 'captain'
     if (!allowed) throw new GameError('Solo los integrantes de Rayo y Exiliados pueden inscribirse')
     await setInscripcion(db, torneo, req.user!.id, req.body?.inscribir !== false)
-    res.json({ success: true })
+
+    const count = (await listInscritos(db, torneo.id)).length
+    let drawn = false
+    if (req.body?.inscribir !== false && count >= TOTAL_PLAYERS) {
+      const fresh = await getCurrentTorneo(db)
+      if (fresh?.status === 'inscripcion') {
+        await performDraw(db, fresh)
+        drawn = true
+      }
+    }
+    res.json({ success: true, drawn })
   } catch (error) {
     sendError(res, error, 'Error con la inscripción')
   }
 })
 
-// POST /api/torneo/sorteo - Cerrar inscripción y sortear los grupos (capitanes).
-router.post('/sorteo', requireCaptain, async (req, res) => {
+// POST /api/torneo/sorteo - Iniciar el torneo antes de llenarse: completa con
+// bots y hace el sorteo (solo chicolinas).
+router.post('/sorteo', requireSuperAdmin, async (req, res) => {
   try {
     const db = getDatabase()
     const torneo = await getCurrentTorneo(db)
@@ -160,6 +225,133 @@ router.post('/sorteo-visto', requireAuth, async (req, res) => {
     res.json({ success: true })
   } catch (error) {
     sendError(res, error, 'Error guardando el sorteo')
+  }
+})
+
+// --- Partidos ---
+
+async function loadMatch(db: Client, matchId: number) {
+  const torneo = await getCurrentTorneo(db)
+  if (!torneo) throw new GameError('No hay torneo')
+  await advanceTorneo(db, torneo)
+  const m = (
+    await db.execute({ sql: 'SELECT * FROM torneo_partidos WHERE id = ? AND torneo_id = ?', args: [matchId, torneo.id] })
+  ).rows[0] as unknown as Partido | undefined
+  if (!m) throw new GameError('Ese partido no existe')
+  const { participantes, partidos } = await loadTorneoData(db, torneo)
+  return { torneo, m, participantes, partidos }
+}
+
+async function matchState(db: Client, matchId: number, memberId: number) {
+  const { torneo, m, participantes, partidos } = await loadMatch(db, matchId)
+  const bySlot = new Map(participantes.map((p) => [Number(p.slot), p]))
+  const mySlotRaw = participantes.find((p) => Number(p.member_id) === memberId)?.slot
+  const mySlot = mySlotRaw === undefined ? null : Number(mySlotRaw)
+  const side = mySlot !== null && Number(m.home_slot) === mySlot ? 'home' : mySlot !== null && Number(m.away_slot) === mySlot ? 'away' : null
+  const standings = participantes.length > 0 ? computeStandings(participantes, partidos) : {}
+
+  // Info del cara a cara: carta del integrante (si tiene), grupo y campaña.
+  const sideInfo = async (slot: number | null) => {
+    if (slot === null) return null
+    const p = bySlot.get(slot)!
+    let cardUrl = ''
+    if (p.member_id !== null) {
+      const row = (await db.execute({ sql: 'SELECT card_url FROM clan_members WHERE member_id = ? LIMIT 1', args: [p.member_id] }))
+        .rows[0] as unknown as { card_url: string } | undefined
+      cardUrl = row?.card_url ?? ''
+    }
+    const groupRow = standings[p.group_letter]?.find((r) => r.slot === slot)
+    const groupPos = standings[p.group_letter]?.findIndex((r) => r.slot === slot)
+    const played = partidos.filter((x) => x.status === 'jugado' && (Number(x.home_slot) === slot || Number(x.away_slot) === slot))
+    const form = played.slice(-5).map((x) => (Number(x.winner_slot) === slot ? 'G' : x.winner_slot === null ? 'E' : 'P'))
+    return { ...participanteView(p), cardUrl, groupStats: groupRow ?? null, groupPosition: groupPos !== undefined && groupPos >= 0 ? groupPos + 1 : null, form }
+  }
+
+  const open = isMatchOpen(m)
+  const base = {
+    torneoName: torneo.name,
+    partido: partidoView(m),
+    home: await sideInfo(num(m.home_slot)),
+    away: await sideInfo(num(m.away_slot)),
+    mySide: side,
+    open,
+    questionsPerRound: QUESTIONS_PER_ROUND,
+  }
+
+  // Mi partida: preguntas ya respondidas (con la correcta) y la actual (sin).
+  let play = null
+  if (side && m.home_slot !== null && m.away_slot !== null) {
+    const puzzle = await getMatchPuzzle(db, Number(m.id))
+    const progress = await getPlayProgress(db, Number(m.id), mySlot!)
+    const opponentSlot = side === 'home' ? Number(m.away_slot) : Number(m.home_slot)
+    const opponentBot = bySlot.get(opponentSlot)!.member_id === null
+    const opponentProgress = opponentBot ? null : await getPlayProgress(db, Number(m.id), opponentSlot)
+    const idx = progress.answers.length
+    const roundIndex = Math.floor(idx / QUESTIONS_PER_ROUND)
+    const current =
+      !progress.finished && progress.roundActive && puzzle.rounds[roundIndex]
+        ? (() => {
+            const q = puzzle.rounds[roundIndex].questions[idx % QUESTIONS_PER_ROUND]
+            return { roundIndex, questionIndex: idx % QUESTIONS_PER_ROUND, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null }
+          })()
+        : null
+    play = {
+      started: progress.started,
+      finished: progress.finished,
+      roundActive: progress.roundActive,
+      roundNames: puzzle.rounds.map((r) => r.name),
+      rounds: progress.rounds.map((r) => r.score),
+      answered: progress.answers.map((chosen, i) => {
+        const q = puzzle.rounds[Math.floor(i / QUESTIONS_PER_ROUND)].questions[i % QUESTIONS_PER_ROUND]
+        return { chosen, correctIndex: q.correctIndex }
+      }),
+      current,
+      opponentFinished: opponentBot ? true : !!opponentProgress?.finished,
+    }
+  }
+
+  const result = m.status === 'jugado' && m.home_slot !== null && m.away_slot !== null ? await matchBreakdown(db, m, bySlot) : null
+  return { ...base, play, result }
+}
+
+// GET /api/torneo/partido/:id - Cara a cara, mi partida y el resultado.
+router.get('/partido/:id', requireAuth, async (req, res) => {
+  try {
+    res.json({ success: true, data: await matchState(getDatabase(), Number(req.params.id), req.user!.id) })
+  } catch (error) {
+    sendError(res, error, 'Error cargando el partido')
+  }
+})
+
+// POST /api/torneo/partido/:id/empezar - Empieza el partido o la ronda siguiente.
+router.post('/partido/:id/empezar', requireAuth, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { m, participantes } = await loadMatch(db, Number(req.params.id))
+    const mySlot = participantes.find((p) => Number(p.member_id) === req.user!.id)?.slot
+    if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
+      throw new GameError('No jugás este partido')
+    }
+    await startOrResume(db, m, Number(mySlot))
+    res.json({ success: true, data: await matchState(db, Number(req.params.id), req.user!.id) })
+  } catch (error) {
+    sendError(res, error, 'Error empezando el partido')
+  }
+})
+
+// POST /api/torneo/partido/:id/responder { answer } - Responde la pregunta actual.
+router.post('/partido/:id/responder', requireAuth, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { m, participantes } = await loadMatch(db, Number(req.params.id))
+    const mySlot = participantes.find((p) => Number(p.member_id) === req.user!.id)?.slot
+    if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
+      throw new GameError('No jugás este partido')
+    }
+    const feedback = await answerQuestion(db, m, Number(mySlot), Number(req.body?.answer))
+    res.json({ success: true, data: { feedback, state: await matchState(db, Number(req.params.id), req.user!.id) } })
+  } catch (error) {
+    sendError(res, error, 'Error registrando la respuesta')
   }
 })
 

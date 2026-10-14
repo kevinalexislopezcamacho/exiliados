@@ -104,18 +104,23 @@ export async function createTorneo(db: Client, name: string, createdBy: string) 
   })
 }
 
-// Borra el torneo con todo lo suyo (capitanes). Sirve para cancelarlo.
+// Borra el torneo con todo lo suyo (solo chicolinas). Sirve para cancelarlo.
 export async function deleteTorneo(db: Client, torneoId: number) {
   const t = (await db.execute({ sql: 'SELECT id FROM torneos WHERE id = ?', args: [torneoId] })).rows[0]
   if (!t) throw new GameError('El torneo no existe')
+  const matchIds = `SELECT id FROM torneo_partidos WHERE torneo_id = ?`
   await db.batch(
     [
+      { sql: `DELETE FROM torneo_jugadas WHERE match_id IN (${matchIds})`, args: [torneoId] },
+      { sql: `DELETE FROM torneo_rondas WHERE match_id IN (${matchIds})`, args: [torneoId] },
+      ...[
       'torneo_sorteo_visto',
       'torneo_partidos',
       'torneo_participantes',
       'torneo_inscritos',
-    ].map((table) => ({ sql: `DELETE FROM ${table} WHERE torneo_id = ?`, args: [torneoId] }))
-      .concat([{ sql: 'DELETE FROM torneos WHERE id = ?', args: [torneoId] }]),
+      ].map((table) => ({ sql: `DELETE FROM ${table} WHERE torneo_id = ?`, args: [torneoId] })),
+      { sql: 'DELETE FROM torneos WHERE id = ?', args: [torneoId] },
+    ],
     'write'
   )
 }

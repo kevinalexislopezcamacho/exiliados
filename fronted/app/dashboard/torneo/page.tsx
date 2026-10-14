@@ -41,11 +41,11 @@ function MatchRow({
   const home = m.homeSlot !== null ? bySlot.get(m.homeSlot) : undefined
   const away = m.awaySlot !== null ? bySlot.get(m.awaySlot) : undefined
   const mine = (m.homeSlot !== null && m.homeSlot === mySlot) || (m.awaySlot !== null && m.awaySlot === mySlot)
-  return (
+  const content = (
     <div
-      className={`grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+      className={`grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
         mine ? 'border-amber-300/60 bg-amber-300/5' : 'border-border/60 bg-card/40'
-      }`}
+      } ${home && away ? 'hover:border-primary/60' : ''}`}
     >
       {home ? <PlayerChip p={home} mySlot={mySlot} align="right" /> : <span className="text-right text-muted-foreground">{m.homeLabel}</span>}
       <span className="min-w-[56px] text-center font-black">
@@ -64,6 +64,58 @@ function MatchRow({
       </span>
       {away ? <PlayerChip p={away} mySlot={mySlot} /> : <span className="text-muted-foreground">{m.awayLabel}</span>}
     </div>
+  )
+  // Con los dos rivales definidos se puede abrir el cara a cara.
+  return home && away ? (
+    <Link href={`/dashboard/torneo/partido/${m.id}`} className="block">
+      {content}
+    </Link>
+  ) : (
+    content
+  )
+}
+
+// Tu próximo partido, con acceso directo para jugarlo.
+function NextMatchCard({
+  m,
+  bySlot,
+  mySlot,
+}: {
+  m: NonNullable<TorneoData['nextMatch']>
+  bySlot: Map<number, TorneoParticipante>
+  mySlot: number | null
+}) {
+  const home = m.homeSlot !== null ? bySlot.get(m.homeSlot) : undefined
+  const away = m.awaySlot !== null ? bySlot.get(m.awaySlot) : undefined
+  const rival = home?.slot === mySlot ? away : home
+  const label = m.stage === 'G' ? `Fecha ${m.matchday} · Grupo ${m.group}` : m.stageLabel
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-amber-300/50 bg-zinc-950 p-5 sm:p-6">
+      <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-primary/25 blur-3xl" aria-hidden="true" />
+      <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] tracking-[0.4em] text-amber-300 uppercase">Tu próximo partido · {label}</p>
+          <div className="mt-2 flex items-center gap-3 text-lg sm:text-2xl font-black text-white">
+            {home ? <PlayerChip p={home} mySlot={mySlot} /> : <span className="text-zinc-500 text-base">{m.homeLabel}</span>}
+            <span className="text-primary text-base">VS</span>
+            {away ? <PlayerChip p={away} mySlot={mySlot} /> : <span className="text-zinc-500 text-base">{m.awayLabel}</span>}
+          </div>
+          <p className="mt-1 text-xs text-zinc-400">
+            {m.open
+              ? `Se juega hasta el ${formatDay(m.closesDay)} (2 días). ${m.myFinished ? 'Ya jugaste: esperando a tu rival.' : ''}`
+              : `Abre el ${formatDay(m.opensDay)} y se puede jugar hasta el ${formatDay(m.closesDay)}.`}
+            {rival?.isBot && ' Tu rival es un bot.'}
+          </p>
+        </div>
+        {home && away && (
+          <Link href={`/dashboard/torneo/partido/${m.id}`}>
+            <Button size="lg" className="w-full sm:w-auto px-8 font-black" variant={m.open && !m.myFinished ? 'default' : 'outline'}>
+              {m.open && !m.myFinished ? (m.myStarted ? 'SEGUIR JUGANDO' : 'JUGAR') : 'VER CARA A CARA'}
+            </Button>
+          </Link>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -224,15 +276,36 @@ export default function TorneoPage() {
                     />
                   </div>
                 </div>
-                {data?.canJoin && (
+                {data?.canJoin && !data.meInscrito && (
                   <Button
                     size="lg"
-                    className={`mt-6 px-10 text-lg font-black ${data.meInscrito ? 'bg-zinc-700 hover:bg-zinc-600' : ''}`}
+                    className="mt-6 px-10 text-lg font-black"
                     disabled={busy}
-                    onClick={() => post('/api/torneo/inscripcion', { inscribir: !data.meInscrito })}
+                    onClick={() => post('/api/torneo/inscripcion', { inscribir: true })}
                   >
-                    {data.meInscrito ? 'Estás inscripto · Bajarme' : 'INSCRIBIRME'}
+                    INSCRIBIRME
                   </Button>
+                )}
+                {data?.meInscrito && (
+                  <motion.div
+                    className="mx-auto mt-6 max-w-md rounded-xl border border-green-500/40 bg-green-500/10 p-4"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <p className="font-black text-green-400">✓ ¡Estás inscripto!</p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      El torneo iniciará pronto. Cuando se completen los {total} lugares
+                      {inscritos.length < total ? ` (faltan ${total - inscritos.length})` : ''} se hace el sorteo en vivo y vas a
+                      ver en qué grupo caíste.
+                    </p>
+                    <button
+                      className="mt-2 text-xs text-zinc-500 underline hover:text-zinc-300"
+                      disabled={busy}
+                      onClick={() => post('/api/torneo/inscripcion', { inscribir: false })}
+                    >
+                      Bajarme del torneo
+                    </button>
+                  </motion.div>
                 )}
               </div>
             </section>
@@ -255,11 +328,12 @@ export default function TorneoPage() {
               )}
             </Card>
 
-            {isCaptain && (
+            {data?.isOrganizer && (
               <Card className="p-5 space-y-3 border-amber-300/30">
-                <h3 className="font-bold">Panel de capitanes</h3>
+                <h3 className="font-bold">Panel del organizador</h3>
                 <p className="text-sm text-muted-foreground">
-                  Al hacer el sorteo se cierra la inscripción.{' '}
+                  Con {total} inscriptos el sorteo se hace solo. Si querés arrancar antes, iniciá el torneo: se cierra la
+                  inscripción.{' '}
                   {inscritos.length > total
                     ? `Hay ${inscritos.length} inscriptos: entran los ${total} mejores del ranking general.`
                     : bots > 0
@@ -271,10 +345,12 @@ export default function TorneoPage() {
                   <Button
                     disabled={busy || inscritos.length < 2}
                     onClick={() => {
-                      if (confirm('¿Cerrar la inscripción y hacer el sorteo? No se puede deshacer.')) post('/api/torneo/sorteo')
+                      if (confirm(`¿Iniciar el torneo con ${inscritos.length} inscriptos${bots > 0 ? ` y ${bots} bots` : ''}? No se puede deshacer.`)) {
+                        post('/api/torneo/sorteo')
+                      }
                     }}
                   >
-                    Hacer sorteo
+                    Iniciar torneo ahora
                   </Button>
                   <Button
                     variant="outline"
@@ -294,7 +370,31 @@ export default function TorneoPage() {
         {/* Torneo en juego */}
         {torneo && torneo.status !== 'inscripcion' && data?.participantes && (
           <>
-            {torneo.startDay && (
+            {data.podium && data.podium.champion !== null && (
+              <section className="relative overflow-hidden rounded-2xl border border-amber-300/60 bg-zinc-950 p-6 sm:p-10 text-center">
+                <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[30rem] h-[30rem] rounded-full bg-amber-400/20 blur-3xl" aria-hidden="true" />
+                <div className="relative">
+                  <motion.p className="text-7xl" initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 140, damping: 10 }}>
+                    🏆
+                  </motion.p>
+                  <p className="mt-2 text-xs tracking-[0.5em] text-amber-300 uppercase">Campeón del {torneo.name}</p>
+                  <div className="mt-3 flex justify-center">
+                    <div className="flex items-center gap-3 text-3xl sm:text-5xl font-black text-white">
+                      <Flag code={bySlot.get(data.podium.champion)?.countryCode ?? ''} className="w-12 sm:w-16 rounded" />
+                      {bySlot.get(data.podium.champion)?.name}
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap justify-center gap-6 text-sm text-zinc-300">
+                    {data.podium.runnerUp !== null && <span>🥈 {bySlot.get(data.podium.runnerUp)?.name}</span>}
+                    {data.podium.third !== null && <span>🥉 {bySlot.get(data.podium.third)?.name}</span>}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {data.nextMatch && <NextMatchCard m={data.nextMatch} bySlot={bySlot} mySlot={mySlot} />}
+
+            {torneo.status === 'en_juego' && torneo.startDay && data.today && data.today < torneo.startDay && (
               <Card className="p-4 flex items-center gap-3 border-primary/30 bg-primary/5">
                 <CalendarDays className="w-5 h-5 text-primary shrink-0" />
                 <p className="text-sm">
@@ -328,12 +428,12 @@ export default function TorneoPage() {
                         <tr>
                           <th className="text-left py-1 w-5">#</th>
                           <th className="text-left py-1">Jugador</th>
-                          <th className="py-1">PJ</th>
-                          <th className="py-1">G</th>
-                          <th className="py-1">E</th>
-                          <th className="py-1">P</th>
-                          <th className="py-1">DG</th>
-                          <th className="py-1">PTS</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">PJ</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">G</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">E</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">P</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">DG</th>
+                          <th className="py-1 w-7 sm:w-9 text-center">PTS</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -343,12 +443,12 @@ export default function TorneoPage() {
                             <td className="py-1.5 max-w-0 w-full">
                               <PlayerChip p={bySlot.get(r.slot)} mySlot={mySlot} />
                             </td>
-                            <td className="py-1.5 text-center">{r.pj}</td>
-                            <td className="py-1.5 text-center">{r.g}</td>
-                            <td className="py-1.5 text-center">{r.e}</td>
-                            <td className="py-1.5 text-center">{r.p}</td>
-                            <td className="py-1.5 text-center">{r.dg > 0 ? `+${r.dg}` : r.dg}</td>
-                            <td className="py-1.5 text-center font-black">{r.pts}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.pj}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.g}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.e}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.p}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.dg > 0 ? `+${r.dg}` : r.dg}</td>
+                            <td className="py-1.5 w-7 sm:w-9 text-center font-black tabular-nums">{r.pts}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -454,7 +554,19 @@ export default function TorneoPage() {
               </div>
             )}
 
-            {isCaptain && (
+            {torneo.status === 'finalizado' && isCaptain && (
+              <Card className="p-5 space-y-3">
+                <p className="font-bold">¿Otro torneo?</p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del torneo" />
+                  <Button disabled={busy} onClick={() => post('/api/torneo', { name: newName })}>
+                    Crear y abrir inscripción
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {data.isOrganizer && torneo.status === 'en_juego' && (
               <div className="pt-6 text-right">
                 <Button
                   variant="ghost"

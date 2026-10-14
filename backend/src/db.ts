@@ -390,6 +390,26 @@ export async function initializeDatabase() {
       winner_slot INTEGER
     )
   `)
+  // Contenido de las 5 rondas de cada partido (igual para los dos rivales)
+  // y lo que va jugando cada uno.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_rondas (
+      match_id INTEGER PRIMARY KEY,
+      puzzle_json TEXT NOT NULL
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_jugadas (
+      match_id INTEGER NOT NULL,
+      slot INTEGER NOT NULL,
+      answers_json TEXT NOT NULL DEFAULT '[]',
+      rounds_json TEXT NOT NULL DEFAULT '[]',
+      round_started_at INTEGER,
+      finished INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (match_id, slot)
+    )
+  `)
   await db.execute(`
     CREATE TABLE IF NOT EXISTS torneo_sorteo_visto (
       torneo_id INTEGER NOT NULL,
