@@ -54,7 +54,7 @@ function MatchRow({
             {m.homeGoals} - {m.awayGoals}
             {m.homePens !== null && (
               <span className="block text-[10px] font-normal text-muted-foreground">
-                pen. {m.homePens}-{m.awayPens}
+                desempate {m.homePens}-{m.awayPens}
               </span>
             )}
           </>
@@ -559,7 +559,7 @@ export default function TorneoPage() {
                     <table className="w-full text-sm">
                       <thead className="text-[11px] text-muted-foreground">
                         <tr>
-                          <th className="text-left py-1 w-5">#</th>
+                          <th className="text-left py-1 w-7">#</th>
                           <th className="text-left py-1">Jugador</th>
                           <th className="py-1 px-1.5 sm:px-2.5 text-center">PJ</th>
                           <th className="py-1 px-1.5 sm:px-2.5 text-center">G</th>
@@ -572,7 +572,7 @@ export default function TorneoPage() {
                       <tbody>
                         {rows.map((r, i) => (
                           <tr key={r.slot} className={`border-t border-border/40 ${i < 2 ? 'bg-green-500/5' : ''}`}>
-                            <td className={`py-1.5 font-bold ${i < 2 ? 'text-green-500' : 'text-muted-foreground'}`}>{i + 1}</td>
+                            <td className={`py-1.5 pr-2 font-bold ${i < 2 ? 'text-green-500' : 'text-muted-foreground'}`}>{i + 1}</td>
                             <td className="py-1.5 max-w-0 w-full">
                               <PlayerChip p={bySlot.get(r.slot)} mySlot={mySlot} />
                             </td>
