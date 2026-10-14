@@ -1,0 +1,482 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { motion } from 'framer-motion'
+import { useAuth } from '@/lib/auth/context'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { DrawCeremony } from '@/components/torneo/draw-ceremony'
+import { Flag, formatDay, type TorneoData, type TorneoParticipante, type TorneoPartido } from '@/components/torneo/shared'
+import { ArrowLeft, CalendarDays, Clapperboard, Network, Trophy, Users } from 'lucide-react'
+
+type Tab = 'grupos' | 'calendario' | 'cuadro'
+
+const STAGE_ORDER: TorneoPartido['stage'][] = ['G', 'R16', 'QF', 'SF', '3P', 'F']
+
+function PlayerChip({ p, mySlot, align = 'left' }: { p: TorneoParticipante | undefined; mySlot: number | null; align?: 'left' | 'right' }) {
+  if (!p) return null
+  return (
+    <span className={`flex items-center gap-1.5 min-w-0 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
+      <Flag code={p.countryCode} className="w-5 shrink-0 rounded-[2px]" />
+      <span className={`truncate ${p.slot === mySlot ? 'text-amber-300 font-bold' : ''}`}>
+        {p.isBot && '🤖 '}
+        {p.name}
+      </span>
+    </span>
+  )
+}
+
+function MatchRow({
+  m,
+  bySlot,
+  mySlot,
+}: {
+  m: TorneoPartido
+  bySlot: Map<number, TorneoParticipante>
+  mySlot: number | null
+}) {
+  const home = m.homeSlot !== null ? bySlot.get(m.homeSlot) : undefined
+  const away = m.awaySlot !== null ? bySlot.get(m.awaySlot) : undefined
+  const mine = (m.homeSlot !== null && m.homeSlot === mySlot) || (m.awaySlot !== null && m.awaySlot === mySlot)
+  return (
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+        mine ? 'border-amber-300/60 bg-amber-300/5' : 'border-border/60 bg-card/40'
+      }`}
+    >
+      {home ? <PlayerChip p={home} mySlot={mySlot} align="right" /> : <span className="text-right text-muted-foreground">{m.homeLabel}</span>}
+      <span className="min-w-[56px] text-center font-black">
+        {m.status === 'jugado' ? (
+          <>
+            {m.homeGoals} - {m.awayGoals}
+            {m.homePens !== null && (
+              <span className="block text-[10px] font-normal text-muted-foreground">
+                pen. {m.homePens}-{m.awayPens}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">VS</span>
+        )}
+      </span>
+      {away ? <PlayerChip p={away} mySlot={mySlot} /> : <span className="text-muted-foreground">{m.awayLabel}</span>}
+    </div>
+  )
+}
+
+export default function TorneoPage() {
+  const { user, loading } = useAuth()
+  const router = useRouter()
+  const [data, setData] = useState<TorneoData | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<Tab>('grupos')
+  const [replay, setReplay] = useState(false)
+  const [newName, setNewName] = useState('Mundial Exiliados')
+
+  useEffect(() => {
+    if (!loading && !user) router.push('/login')
+  }, [user, loading, router])
+
+  const load = useCallback(() => {
+    fetch('/api/torneo')
+      .then((r) => r.json())
+      .then((r) => (r.success ? setData(r.data) : setError(r.error || 'No se pudo cargar el torneo')))
+      .catch(() => setError('Error cargando el torneo'))
+  }, [])
+
+  useEffect(() => {
+    if (user) load()
+  }, [user, load])
+
+  const post = async (url: string, body?: unknown, method = 'POST') => {
+    setBusy(true)
+    setError('')
+    try {
+      const r = await (
+        await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+      ).json()
+      if (!r.success) setError(r.error || 'No se pudo completar')
+      load()
+      return r.success as boolean
+    } catch {
+      setError('Error de conexión')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const bySlot = useMemo(() => new Map((data?.participantes ?? []).map((p) => [p.slot, p])), [data])
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const isCaptain = user.role === 'captain'
+  const torneo = data?.torneo ?? null
+  const mySlot = data?.mySlot ?? null
+
+  // La ceremonia del sorteo se muestra la primera vez (o si piden repetirla).
+  const showCeremony =
+    torneo?.status === 'en_juego' && data?.participantes && data.drawOrder && (replay || !data.drawSeen)
+  if (showCeremony && torneo && data?.participantes && data.drawOrder) {
+    return (
+      <DrawCeremony
+        participantes={data.participantes}
+        order={data.drawOrder}
+        mySlot={mySlot}
+        torneoName={torneo.name}
+        onFinish={() => {
+          setReplay(false)
+          if (!data.drawSeen) post('/api/torneo/sorteo-visto')
+        }}
+      />
+    )
+  }
+
+  const inscritos = data?.inscritos ?? []
+  const total = torneo?.totalPlayers ?? 32
+  const bots = Math.max(0, total - inscritos.length)
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+      <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/dashboard/minijuegos">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+            </Link>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-black text-primary truncate">{torneo?.name ?? 'Mundial Exiliados'}</h1>
+              <p className="text-sm text-muted-foreground truncate">32 jugadores · grupos, octavos, cuartos, semis y final</p>
+            </div>
+          </div>
+          {torneo?.status === 'en_juego' && (
+            <Button variant="outline" className="gap-2 border-primary/40" onClick={() => setReplay(true)}>
+              <Clapperboard className="w-4 h-4" /> <span className="hidden sm:inline">Ver el sorteo</span>
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8 space-y-6 max-w-6xl">
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-destructive text-sm">{error}</div>
+        )}
+        {!data && !error && <div className="h-64 rounded-2xl bg-card/50 border border-border/50 animate-pulse" />}
+
+        {/* Sin torneo */}
+        {data && !torneo && (
+          <Card className="p-8 text-center space-y-4">
+            <Trophy className="w-12 h-12 mx-auto text-primary" />
+            <p className="text-xl font-bold">Todavía no hay torneo</p>
+            {isCaptain ? (
+              <div className="max-w-sm mx-auto space-y-3">
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del torneo" />
+                <Button className="w-full" disabled={busy} onClick={() => post('/api/torneo', { name: newName })}>
+                  Crear torneo y abrir inscripción
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Cuando los capitanes lo abran, te vas a poder inscribir acá.</p>
+            )}
+          </Card>
+        )}
+
+        {/* Inscripción */}
+        {torneo?.status === 'inscripcion' && (
+          <>
+            <section className="relative overflow-hidden rounded-2xl border border-primary/40 bg-zinc-950 p-6 sm:p-10 text-center">
+              <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[36rem] h-[36rem] rounded-full bg-primary/20 blur-3xl" />
+              <div className="relative">
+                <motion.p
+                  className="text-6xl"
+                  animate={{ rotate: [0, -6, 6, 0], scale: [1, 1.06, 1] }}
+                  transition={{ duration: 3, repeat: Infinity }}
+                >
+                  🏆
+                </motion.p>
+                <p className="mt-2 text-xs tracking-[0.5em] text-amber-300 uppercase">Inscripción abierta</p>
+                <h2 className="mt-2 text-4xl sm:text-6xl font-black">{torneo.name.toUpperCase()}</h2>
+                <p className="mt-3 text-sm text-zinc-400">
+                  8 grupos de 4 · pasan 2 · partidos de 5 rondas · 2 días para jugar cada partido
+                </p>
+                <div className="mx-auto mt-6 max-w-md">
+                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
+                    <span>{inscritos.length} inscriptos</span>
+                    <span>{total} lugares</span>
+                  </div>
+                  <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-primary to-amber-400"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (inscritos.length / total) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                {data?.canJoin && (
+                  <Button
+                    size="lg"
+                    className={`mt-6 px-10 text-lg font-black ${data.meInscrito ? 'bg-zinc-700 hover:bg-zinc-600' : ''}`}
+                    disabled={busy}
+                    onClick={() => post('/api/torneo/inscripcion', { inscribir: !data.meInscrito })}
+                  >
+                    {data.meInscrito ? 'Estás inscripto · Bajarme' : 'INSCRIBIRME'}
+                  </Button>
+                )}
+              </div>
+            </section>
+
+            <Card className="p-5">
+              <h3 className="mb-3 flex items-center gap-2 font-bold text-primary">
+                <Users className="w-5 h-5" /> Inscriptos ({inscritos.length})
+              </h3>
+              {inscritos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Todavía no se anotó nadie. ¡Sé el primero!</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {inscritos.map((p) => (
+                    <div key={p.memberId} className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm">
+                      <Flag code={p.countryCode} className="w-6 rounded-[2px]" />
+                      <span className="truncate">{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {isCaptain && (
+              <Card className="p-5 space-y-3 border-amber-300/30">
+                <h3 className="font-bold">Panel de capitanes</h3>
+                <p className="text-sm text-muted-foreground">
+                  Al hacer el sorteo se cierra la inscripción.{' '}
+                  {inscritos.length > total
+                    ? `Hay ${inscritos.length} inscriptos: entran los ${total} mejores del ranking general.`
+                    : bots > 0
+                      ? `Se completan los ${bots} lugares que faltan con bots.`
+                      : 'Están los 32 completos.'}{' '}
+                  Los bombos se arman según el ranking general.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={busy || inscritos.length < 2}
+                    onClick={() => {
+                      if (confirm('¿Cerrar la inscripción y hacer el sorteo? No se puede deshacer.')) post('/api/torneo/sorteo')
+                    }}
+                  >
+                    Hacer sorteo
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      if (confirm('¿Borrar este torneo y sus inscripciones?')) post(`/api/torneo/${torneo.id}`, undefined, 'DELETE')
+                    }}
+                  >
+                    Borrar torneo
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Torneo en juego */}
+        {torneo && torneo.status !== 'inscripcion' && data?.participantes && (
+          <>
+            {torneo.startDay && (
+              <Card className="p-4 flex items-center gap-3 border-primary/30 bg-primary/5">
+                <CalendarDays className="w-5 h-5 text-primary shrink-0" />
+                <p className="text-sm">
+                  El torneo arranca el <b>{formatDay(torneo.startDay)}</b>. Cada partido se juega en 5 rondas de minijuegos y
+                  hay 2 días para jugarlo.
+                </p>
+              </Card>
+            )}
+
+            <div className="flex gap-2 overflow-x-auto">
+              {(
+                [
+                  ['grupos', 'Grupos', Users],
+                  ['calendario', 'Calendario', CalendarDays],
+                  ['cuadro', 'Cuadro final', Network],
+                ] as const
+              ).map(([key, label, Icon]) => (
+                <Button key={key} variant={tab === key ? 'default' : 'outline'} className="gap-2" onClick={() => setTab(key)}>
+                  <Icon className="w-4 h-4" /> {label}
+                </Button>
+              ))}
+            </div>
+
+            {tab === 'grupos' && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {Object.entries(data.grupos ?? {}).map(([g, rows]) => (
+                  <Card key={g} className="p-4 overflow-hidden">
+                    <p className="mb-2 font-black tracking-[0.3em] text-primary">GRUPO {g}</p>
+                    <table className="w-full text-sm">
+                      <thead className="text-[11px] text-muted-foreground">
+                        <tr>
+                          <th className="text-left py-1 w-5">#</th>
+                          <th className="text-left py-1">Jugador</th>
+                          <th className="py-1">PJ</th>
+                          <th className="py-1">G</th>
+                          <th className="py-1">E</th>
+                          <th className="py-1">P</th>
+                          <th className="py-1">DG</th>
+                          <th className="py-1">PTS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => (
+                          <tr key={r.slot} className={`border-t border-border/40 ${i < 2 ? 'bg-green-500/5' : ''}`}>
+                            <td className={`py-1.5 font-bold ${i < 2 ? 'text-green-500' : 'text-muted-foreground'}`}>{i + 1}</td>
+                            <td className="py-1.5 max-w-0 w-full">
+                              <PlayerChip p={bySlot.get(r.slot)} mySlot={mySlot} />
+                            </td>
+                            <td className="py-1.5 text-center">{r.pj}</td>
+                            <td className="py-1.5 text-center">{r.g}</td>
+                            <td className="py-1.5 text-center">{r.e}</td>
+                            <td className="py-1.5 text-center">{r.p}</td>
+                            <td className="py-1.5 text-center">{r.dg > 0 ? `+${r.dg}` : r.dg}</td>
+                            <td className="py-1.5 text-center font-black">{r.pts}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {tab === 'calendario' && (
+              <div className="space-y-5">
+                {STAGE_ORDER.flatMap((stage) => {
+                  const ofStage = (data.partidos ?? []).filter((m) => m.stage === stage)
+                  if (stage === 'G') {
+                    return [1, 2, 3].map((md) => {
+                      const ms = ofStage.filter((m) => m.matchday === md)
+                      if (ms.length === 0) return null
+                      return (
+                        <Card key={`G${md}`} className="p-4 space-y-2">
+                          <p className="font-bold text-primary">
+                            Fecha {md} · Grupos{' '}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {formatDay(ms[0].opensDay)} – {formatDay(ms[0].closesDay)}
+                            </span>
+                          </p>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {ms.map((m) => (
+                              <div key={m.id}>
+                                <p className="text-[10px] text-muted-foreground mb-0.5">Grupo {m.group}</p>
+                                <MatchRow m={m} bySlot={bySlot} mySlot={mySlot} />
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+                      )
+                    })
+                  }
+                  if (ofStage.length === 0) return []
+                  return [
+                    <Card key={stage} className="p-4 space-y-2">
+                      <p className="font-bold text-primary">
+                        {ofStage[0].stageLabel}{' '}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {formatDay(ofStage[0].opensDay)} – {formatDay(ofStage[0].closesDay)}
+                        </span>
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {ofStage.map((m) => (
+                          <MatchRow key={m.id} m={m} bySlot={bySlot} mySlot={mySlot} />
+                        ))}
+                      </div>
+                    </Card>,
+                  ]
+                })}
+              </div>
+            )}
+
+            {tab === 'cuadro' && (
+              <div className="overflow-x-auto pb-2">
+                <div className="grid min-w-[900px] grid-cols-4 gap-4">
+                  {(['R16', 'QF', 'SF', 'F'] as const).map((stage) => {
+                    const ms = (data.partidos ?? [])
+                      .filter((m) => m.stage === stage || (stage === 'F' && m.stage === '3P'))
+                      .sort((a, b) => (a.stage === 'F' ? -1 : 0) - (b.stage === 'F' ? -1 : 0) || (a.bracketPos ?? 0) - (b.bracketPos ?? 0))
+                    return (
+                      <div key={stage} className="flex flex-col justify-around gap-3">
+                        <p className="text-center text-xs font-black tracking-[0.3em] text-primary">
+                          {stage === 'R16' ? 'OCTAVOS' : stage === 'QF' ? 'CUARTOS' : stage === 'SF' ? 'SEMIS' : 'FINAL'}
+                        </p>
+                        {ms.map((m) => (
+                          <div key={m.id}>
+                            {m.stage === '3P' && <p className="text-[10px] text-center text-muted-foreground mb-1">Tercer puesto</p>}
+                            <div
+                              className={`rounded-lg border ${m.stage === 'F' ? 'border-amber-300/60 bg-amber-300/5' : 'border-border/60 bg-card/40'}`}
+                            >
+                              {(['home', 'away'] as const).map((side) => {
+                                const slot = side === 'home' ? m.homeSlot : m.awaySlot
+                                const goals = side === 'home' ? m.homeGoals : m.awayGoals
+                                const p = slot !== null ? bySlot.get(slot) : undefined
+                                return (
+                                  <div
+                                    key={side}
+                                    className={`flex items-center justify-between gap-2 px-3 py-2 text-sm ${side === 'home' ? 'border-b border-border/40' : ''} ${
+                                      m.winnerSlot !== null && m.winnerSlot === slot ? 'font-bold' : ''
+                                    }`}
+                                  >
+                                    {p ? (
+                                      <PlayerChip p={p} mySlot={mySlot} />
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">{side === 'home' ? m.homeLabel : m.awayLabel}</span>
+                                    )}
+                                    <span className="font-black">{m.status === 'jugado' ? goals : ''}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {isCaptain && (
+              <div className="pt-6 text-right">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      confirm('¿Cancelar el torneo? Se borran el sorteo, los partidos y los resultados.') &&
+                      confirm('¿Seguro? No se puede deshacer.')
+                    ) {
+                      post(`/api/torneo/${torneo.id}`, undefined, 'DELETE')
+                    }
+                  }}
+                >
+                  Cancelar torneo
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  )
+}

@@ -194,6 +194,24 @@ export default function MinigamesPage() {
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-destructive text-sm">{error}</div>
         )}
 
+        {/* Mundial Exiliados */}
+        <Link
+          href="/dashboard/torneo"
+          className="group relative block overflow-hidden rounded-2xl border border-amber-300/40 bg-zinc-950 p-5 sm:p-6 transition-all hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-[0_8px_40px_-8px] hover:shadow-amber-400/40"
+        >
+          <div className="absolute -left-16 -top-24 w-72 h-72 rounded-full bg-primary/30 blur-3xl" aria-hidden="true" />
+          <div className="absolute -right-10 -bottom-24 w-72 h-72 rounded-full bg-amber-400/20 blur-3xl" aria-hidden="true" />
+          <div className="relative flex items-center gap-4 sm:gap-6">
+            <span className="text-5xl sm:text-6xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6">🏆</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] sm:text-xs tracking-[0.4em] text-amber-300 uppercase">Torneo</p>
+              <p className="text-2xl sm:text-3xl font-black text-white">MUNDIAL EXILIADOS</p>
+              <p className="text-xs sm:text-sm text-zinc-400">32 jugadores · grupos, eliminatorias y final · sorteo en vivo</p>
+            </div>
+            <span className="hidden sm:inline-flex rounded-full bg-primary px-5 py-2 font-black text-primary-foreground">ENTRAR</span>
+          </div>
+        </Link>
+
         {/* Resumen del día */}
         <section className="relative overflow-hidden rounded-2xl border border-primary/30 bg-zinc-950 p-5 sm:p-6">
           <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-primary/25 blur-3xl" aria-hidden="true" />

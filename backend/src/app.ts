@@ -8,6 +8,7 @@ import communityRouter from './routes/community'
 import eventsRouter from './routes/events'
 import membersRouter from './routes/members'
 import minigamesRouter from './routes/minigames'
+import torneoRouter from './routes/torneo'
 import rankingsRouter from './routes/rankings'
 import reportAccessRouter from './routes/reportAccess'
 import squadReportsRouter from './routes/squadReports'
@@ -33,6 +34,7 @@ app.use('/api/community', communityRouter)
 app.use('/api/events', eventsRouter)
 app.use('/api/members', membersRouter)
 app.use('/api/minigames', minigamesRouter)
+app.use('/api/torneo', torneoRouter)
 app.use('/api/rankings', rankingsRouter)
 app.use('/api/report-access', reportAccessRouter)
 app.use('/api/squad-reports', squadReportsRouter)

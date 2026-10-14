@@ -331,6 +331,73 @@ export async function initializeDatabase() {
       PRIMARY KEY (game, day)
     )
   `)
+  // Mundial Exiliados: torneo de 32 jugadores (8 grupos de 4, octavos,
+  // cuartos, semis, tercer puesto y final). Los participantes que faltan
+  // para llegar a 32 son bots (member_id NULL).
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'inscripcion',
+      start_day TEXT,
+      draw_json TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_inscritos (
+      torneo_id INTEGER NOT NULL,
+      member_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (torneo_id, member_id)
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_participantes (
+      torneo_id INTEGER NOT NULL,
+      slot INTEGER NOT NULL,
+      member_id INTEGER,
+      name TEXT NOT NULL,
+      country_code TEXT NOT NULL DEFAULT '',
+      clan TEXT,
+      seed_score REAL NOT NULL DEFAULT 0,
+      pot INTEGER NOT NULL,
+      group_letter TEXT NOT NULL,
+      group_pos INTEGER NOT NULL,
+      PRIMARY KEY (torneo_id, slot)
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_partidos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      torneo_id INTEGER NOT NULL,
+      stage TEXT NOT NULL,
+      group_letter TEXT,
+      matchday INTEGER,
+      bracket_pos INTEGER,
+      home_slot INTEGER,
+      away_slot INTEGER,
+      home_label TEXT,
+      away_label TEXT,
+      opens_day TEXT NOT NULL,
+      closes_day TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pendiente',
+      home_goals INTEGER,
+      away_goals INTEGER,
+      home_pens INTEGER,
+      away_pens INTEGER,
+      winner_slot INTEGER
+    )
+  `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS torneo_sorteo_visto (
+      torneo_id INTEGER NOT NULL,
+      member_id INTEGER NOT NULL,
+      PRIMARY KEY (torneo_id, member_id)
+    )
+  `)
+
   // Banco de preguntas de las trivias (fútbol, OSM, competencias); los
   // capitanes lo administran desde la página. correct_index apunta a
   // options_json.
