@@ -13,6 +13,7 @@ import {
   markDrawSeen,
   performDraw,
   setInscripcion,
+  setPrize,
   TOTAL_PLAYERS,
   type Participante,
   type Partido,
@@ -134,6 +135,7 @@ router.get('/', requireAuth, async (req, res) => {
           name: torneo.name,
           status: torneo.status,
           startDay: torneo.start_day,
+          prize: torneo.prize ?? '',
           totalPlayers: TOTAL_PLAYERS,
         },
         today,
@@ -159,10 +161,25 @@ router.get('/', requireAuth, async (req, res) => {
 // POST /api/torneo - Crear un torneo nuevo (capitanes).
 router.post('/', requireCaptain, async (req, res) => {
   try {
-    await createTorneo(getDatabase(), String(req.body?.name ?? ''), req.user?.full_name ?? req.user?.username ?? '')
+    await createTorneo(
+      getDatabase(),
+      String(req.body?.name ?? ''),
+      req.user?.full_name ?? req.user?.username ?? '',
+      String(req.body?.prize ?? '')
+    )
     res.status(201).json({ success: true })
   } catch (error) {
     sendError(res, error, 'Error creando el torneo')
+  }
+})
+
+// PUT /api/torneo/:id/premio { prize } - Cambiar el premio (solo chicolinas).
+router.put('/:id/premio', requireSuperAdmin, async (req, res) => {
+  try {
+    await setPrize(getDatabase(), Number(req.params.id), String(req.body?.prize ?? ''))
+    res.json({ success: true })
+  } catch (error) {
+    sendError(res, error, 'Error guardando el premio')
   }
 })
 

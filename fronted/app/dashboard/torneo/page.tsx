@@ -75,6 +75,30 @@ function MatchRow({
   )
 }
 
+// Premio del torneo, en dorado.
+function PrizeBadge({ prize, label = 'Premio' }: { prize: string; label?: string }) {
+  return (
+    <motion.div
+      className="mx-auto mt-4 inline-flex items-center gap-3 rounded-full border-2 border-amber-300/70 bg-gradient-to-r from-amber-500/20 via-amber-300/25 to-amber-500/20 px-5 py-2 shadow-[0_0_35px_rgba(251,191,36,0.35)]"
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 180, damping: 12, delay: 0.2 }}
+    >
+      <motion.span
+        className="text-2xl sm:text-3xl"
+        animate={{ rotateY: [0, 360] }}
+        transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.5, ease: 'easeInOut' }}
+      >
+        🪙
+      </motion.span>
+      <span className="text-left leading-tight">
+        <span className="block text-[10px] tracking-[0.35em] text-amber-200/80 uppercase">{label}</span>
+        <span className="block text-xl sm:text-2xl font-black text-amber-300">{prize}</span>
+      </span>
+    </motion.div>
+  )
+}
+
 // Tu próximo partido, con acceso directo para jugarlo.
 function NextMatchCard({
   m,
@@ -128,6 +152,7 @@ export default function TorneoPage() {
   const [tab, setTab] = useState<Tab>('grupos')
   const [replay, setReplay] = useState(false)
   const [newName, setNewName] = useState('Mundial Exiliados')
+  const [prizeDraft, setPrizeDraft] = useState<string | null>(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -260,6 +285,7 @@ export default function TorneoPage() {
                 </motion.p>
                 <p className="mt-2 text-xs tracking-[0.5em] text-amber-300 uppercase">Inscripción abierta</p>
                 <h2 className="mt-2 text-4xl sm:text-6xl font-black">{torneo.name.toUpperCase()}</h2>
+                {torneo.prize && <PrizeBadge prize={torneo.prize} />}
                 <p className="mt-3 text-sm text-zinc-400">
                   8 grupos de 4 · pasan 2 · partidos de 5 rondas · 2 días para jugar cada partido
                 </p>
@@ -331,6 +357,22 @@ export default function TorneoPage() {
             {data?.isOrganizer && (
               <Card className="p-5 space-y-3 border-amber-300/30">
                 <h3 className="font-bold">Panel del organizador</h3>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    value={prizeDraft ?? torneo.prize}
+                    onChange={(e) => setPrizeDraft(e.target.value)}
+                    placeholder="Premio (ej. 1125 COINS)"
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={busy || prizeDraft === null || prizeDraft === torneo.prize}
+                    onClick={async () => {
+                      if (await post(`/api/torneo/${torneo.id}/premio`, { prize: prizeDraft }, 'PUT')) setPrizeDraft(null)
+                    }}
+                  >
+                    Guardar premio
+                  </Button>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   Con {total} inscriptos el sorteo se hace solo. Si querés arrancar antes, iniciá el torneo: se cierra la
                   inscripción.{' '}
@@ -384,12 +426,19 @@ export default function TorneoPage() {
                       {bySlot.get(data.podium.champion)?.name}
                     </div>
                   </div>
+                  {torneo.prize && <PrizeBadge prize={torneo.prize} label="Se lleva" />}
                   <div className="mt-5 flex flex-wrap justify-center gap-6 text-sm text-zinc-300">
                     {data.podium.runnerUp !== null && <span>🥈 {bySlot.get(data.podium.runnerUp)?.name}</span>}
                     {data.podium.third !== null && <span>🥉 {bySlot.get(data.podium.third)?.name}</span>}
                   </div>
                 </div>
               </section>
+            )}
+
+            {torneo.status === 'en_juego' && torneo.prize && (
+              <div className="flex justify-center">
+                <PrizeBadge prize={torneo.prize} />
+              </div>
             )}
 
             {data.nextMatch && <NextMatchCard m={data.nextMatch} bySlot={bySlot} mySlot={mySlot} />}

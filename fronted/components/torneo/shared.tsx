@@ -46,7 +46,7 @@ export interface StandingRow {
 }
 
 export interface TorneoData {
-  torneo: { id: number; name: string; status: 'inscripcion' | 'en_juego' | 'finalizado'; startDay: string | null; totalPlayers: number } | null
+  torneo: { id: number; name: string; status: 'inscripcion' | 'en_juego' | 'finalizado'; startDay: string | null; totalPlayers: number; prize: string } | null
   today?: string
   isOrganizer?: boolean
   nextMatch?: (TorneoPartido & { open: boolean; myFinished: boolean; myStarted: boolean }) | null

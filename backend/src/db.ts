@@ -345,6 +345,11 @@ export async function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `)
+  // Premio del torneo (texto libre, ej. "1125 COINS").
+  const torneoColumns = (await db.execute(`PRAGMA table_info(torneos)`)).rows as unknown as ColumnInfo[]
+  if (!torneoColumns.some((col) => col.name === 'prize')) {
+    await db.execute(`ALTER TABLE torneos ADD COLUMN prize TEXT NOT NULL DEFAULT ''`)
+  }
   await db.execute(`
     CREATE TABLE IF NOT EXISTS torneo_inscritos (
       torneo_id INTEGER NOT NULL,

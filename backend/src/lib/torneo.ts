@@ -19,6 +19,7 @@ export interface Torneo {
   name: string
   status: TorneoStatus
   start_day: string | null
+  prize: string
   draw_json: string | null
   created_by: string | null
 }
@@ -95,13 +96,21 @@ export async function getCurrentTorneo(db: Client): Promise<Torneo | null> {
   return ((await db.execute('SELECT * FROM torneos ORDER BY id DESC LIMIT 1')).rows[0] as unknown as Torneo) ?? null
 }
 
-export async function createTorneo(db: Client, name: string, createdBy: string) {
+export async function createTorneo(db: Client, name: string, createdBy: string, prize = '') {
   const current = await getCurrentTorneo(db)
   if (current && current.status !== 'finalizado') throw new GameError('Ya hay un torneo en curso')
   await db.execute({
-    sql: `INSERT INTO torneos (name, status, created_by) VALUES (?, 'inscripcion', ?)`,
-    args: [name.trim() || 'Mundial Exiliados', createdBy],
+    sql: `INSERT INTO torneos (name, status, created_by, prize) VALUES (?, 'inscripcion', ?, ?)`,
+    args: [name.trim() || 'Mundial Exiliados', createdBy, prize.trim().slice(0, 80)],
   })
+}
+
+export async function setPrize(db: Client, torneoId: number, prize: string) {
+  const result = await db.execute({
+    sql: 'UPDATE torneos SET prize = ? WHERE id = ?',
+    args: [prize.trim().slice(0, 80), torneoId],
+  })
+  if (result.rowsAffected === 0) throw new GameError('El torneo no existe')
 }
 
 // Borra el torneo con todo lo suyo (solo chicolinas). Sirve para cancelarlo.
