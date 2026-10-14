@@ -437,15 +437,31 @@ export async function initializeDatabase() {
     ['futbol', FUTBOL_QUESTIONS],
     ['osm', OSM_QUESTIONS],
   ] as const) {
+    // Las preguntas del sistema se mantienen iguales a las del código: si
+    // una cambió (ej. un récord que se actualizó) se corrige, y las nuevas se
+    // agregan. Las que cargan los capitanes no se tocan.
     const existing = (
-      await db.execute({ sql: 'SELECT COUNT(*) as count FROM trivia_questions WHERE category = ?', args: [category] })
-    ).rows[0] as unknown as { count: number }
-    if (Number(existing.count) === 0) {
-      for (const q of questions) {
+      await db.execute({
+        sql: `SELECT id, question, options_json, correct_index, explanation FROM trivia_questions
+              WHERE category = ? AND created_by = 'sistema'`,
+        args: [category],
+      })
+    ).rows as unknown as Array<{ id: number; question: string; options_json: string; correct_index: number; explanation: string }>
+    const byQuestion = new Map(existing.map((r) => [r.question, r]))
+    for (const q of questions) {
+      const options = JSON.stringify(q.options)
+      const explanation = q.explanation ?? ''
+      const row = byQuestion.get(q.question)
+      if (!row) {
         await db.execute({
           sql: `INSERT INTO trivia_questions (category, question, options_json, correct_index, explanation, created_by)
                 VALUES (?, ?, ?, 0, ?, 'sistema')`,
-          args: [category, q.question, JSON.stringify(q.options), q.explanation ?? ''],
+          args: [category, q.question, options, explanation],
+        })
+      } else if (row.options_json !== options || Number(row.correct_index) !== 0 || (row.explanation ?? '') !== explanation) {
+        await db.execute({
+          sql: 'UPDATE trivia_questions SET options_json = ?, correct_index = 0, explanation = ? WHERE id = ?',
+          args: [options, explanation, row.id],
         })
       }
     }

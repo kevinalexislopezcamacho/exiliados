@@ -125,10 +125,14 @@ export const EXTRA_CLUB_NAMES = [
   'Cruzeiro', 'Internacional', 'Fluminense', 'Peñarol', 'Nacional', 'Colo-Colo', 'Millonarios', 'Atlético Nacional',
 ]
 
-// --- Más o menos goles: goles en Mundiales de jugadores ya retirados de su
-// selección (números cerrados, no cambian). ---
+// --- Más o menos goles: goles en Mundiales, actualizados después del Mundial
+// 2026: jugadores retirados de su selección, más Mbappé y Messi, que no
+// pueden sumar hasta el Mundial 2030. ---
 
 export const WORLD_CUP_SCORERS: Array<{ name: string; goals: number }> = [
+  // Después del Mundial 2026 (no cambian hasta 2030).
+  { name: 'Kylian Mbappé', goals: 22 },
+  { name: 'Lionel Messi', goals: 21 },
   { name: 'Miroslav Klose', goals: 16 },
   { name: 'Ronaldo Nazário', goals: 15 },
   { name: 'Gerd Müller', goals: 14 },
