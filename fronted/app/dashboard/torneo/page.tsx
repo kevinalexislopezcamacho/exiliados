@@ -84,13 +84,28 @@ function PrizeBadge({ prize, label = 'Premio' }: { prize: string; label?: string
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: 'spring', stiffness: 180, damping: 12, delay: 0.2 }}
     >
-      <motion.span
-        className="text-2xl sm:text-3xl"
+      {/* Moneda dibujada: el emoji 🪙 no existe en varios Windows. */}
+      <motion.svg
+        viewBox="0 0 40 40"
+        className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]"
         animate={{ rotateY: [0, 360] }}
         transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.5, ease: 'easeInOut' }}
+        aria-hidden="true"
       >
-        🪙
-      </motion.span>
+        <defs>
+          <linearGradient id="coin-gold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#fde68a" />
+            <stop offset="50%" stopColor="#f59e0b" />
+            <stop offset="100%" stopColor="#b45309" />
+          </linearGradient>
+        </defs>
+        <circle cx="20" cy="20" r="18" fill="url(#coin-gold)" stroke="#92400e" strokeWidth="1.5" />
+        <circle cx="20" cy="20" r="13" fill="none" stroke="#fef3c7" strokeOpacity="0.7" strokeWidth="1.5" />
+        <text x="20" y="25.5" textAnchor="middle" fontSize="15" fontWeight="900" fill="#78350f">
+          $
+        </text>
+        <ellipse cx="14" cy="12" rx="5" ry="2.5" fill="#fff" opacity="0.45" transform="rotate(-30 14 12)" />
+      </motion.svg>
       <span className="text-left leading-tight">
         <span className="block text-[10px] tracking-[0.35em] text-amber-200/80 uppercase">{label}</span>
         <span className="block text-xl sm:text-2xl font-black text-amber-300">{prize}</span>
