@@ -75,6 +75,75 @@ function MatchRow({
   )
 }
 
+const BRACKET_COLUMNS: Array<{ label: string; stages: TorneoPartido['stage'][] }> = [
+  { label: 'OCTAVOS', stages: ['R16'] },
+  { label: 'CUARTOS', stages: ['QF'] },
+  { label: 'SEMIS', stages: ['SF'] },
+  { label: 'FINAL', stages: ['F', '3P'] },
+]
+
+function bracketMatches(partidos: TorneoPartido[], stages: TorneoPartido['stage'][]) {
+  return partidos
+    .filter((m) => stages.includes(m.stage))
+    .sort((a, b) => stages.indexOf(a.stage) - stages.indexOf(b.stage) || (a.bracketPos ?? 0) - (b.bracketPos ?? 0))
+}
+
+// Un cruce del cuadro: ganador resaltado, perdedor atenuado y, si se
+// definió por desempate, la cantidad de aciertos de cada uno.
+function BracketMatch({ m, bySlot, mySlot }: { m: TorneoPartido; bySlot: Map<number, TorneoParticipante>; mySlot: number | null }) {
+  const played = m.status === 'jugado'
+  const box = (
+    <div>
+      {m.stage === '3P' && <p className="mb-1 text-center text-[10px] text-muted-foreground">Tercer puesto</p>}
+      <div
+        className={`overflow-hidden rounded-lg border transition-colors ${
+          m.stage === 'F' ? 'border-amber-300/60 bg-amber-300/5' : 'border-border/60 bg-card/40'
+        } ${m.homeSlot !== null && m.awaySlot !== null ? 'hover:border-primary/60' : ''}`}
+      >
+        {(['home', 'away'] as const).map((side) => {
+          const slot = side === 'home' ? m.homeSlot : m.awaySlot
+          const goals = side === 'home' ? m.homeGoals : m.awayGoals
+          const pens = side === 'home' ? m.homePens : m.awayPens
+          const p = slot !== null ? bySlot.get(slot) : undefined
+          const won = played && m.winnerSlot !== null && m.winnerSlot === slot
+          const lost = played && m.winnerSlot !== null && m.winnerSlot !== slot
+          return (
+            <div
+              key={side}
+              className={`flex items-center justify-between gap-2 px-3 py-2 text-sm ${side === 'home' ? 'border-b border-border/40' : ''} ${
+                won ? 'font-bold bg-green-500/5' : ''
+              } ${lost ? 'opacity-50' : ''}`}
+            >
+              {p ? (
+                <PlayerChip p={p} mySlot={mySlot} />
+              ) : (
+                <span className="text-muted-foreground text-xs">{side === 'home' ? m.homeLabel : m.awayLabel}</span>
+              )}
+              <span className="flex items-center gap-1 font-black tabular-nums">
+                {won && m.stage === 'F' && <span title="Campeón">🏆</span>}
+                {played ? goals : ''}
+                {played && pens !== null && <span className="text-[10px] font-semibold text-muted-foreground">({pens})</span>}
+              </span>
+            </div>
+          )
+        })}
+        {played && m.homePens !== null && (
+          <p className="border-t border-border/40 px-3 py-1 text-center text-[10px] text-muted-foreground">
+            Desempate por aciertos {m.homePens}-{m.awayPens}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+  return m.homeSlot !== null && m.awaySlot !== null ? (
+    <Link href={`/dashboard/torneo/partido/${m.id}`} className="block">
+      {box}
+    </Link>
+  ) : (
+    box
+  )
+}
+
 // Premio del torneo, en dorado.
 function PrizeBadge({ prize, label = 'Premio' }: { prize: string; label?: string }) {
   return (
@@ -492,12 +561,12 @@ export default function TorneoPage() {
                         <tr>
                           <th className="text-left py-1 w-5">#</th>
                           <th className="text-left py-1">Jugador</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">PJ</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">G</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">E</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">P</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">DG</th>
-                          <th className="py-1 w-7 sm:w-9 text-center">PTS</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">PJ</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">G</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">E</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">P</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">DG</th>
+                          <th className="py-1 px-1.5 sm:px-2.5 text-center">PTS</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -507,12 +576,12 @@ export default function TorneoPage() {
                             <td className="py-1.5 max-w-0 w-full">
                               <PlayerChip p={bySlot.get(r.slot)} mySlot={mySlot} />
                             </td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.pj}</td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.g}</td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.e}</td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.p}</td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center tabular-nums">{r.dg > 0 ? `+${r.dg}` : r.dg}</td>
-                            <td className="py-1.5 w-7 sm:w-9 text-center font-black tabular-nums">{r.pts}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center tabular-nums">{r.pj}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center tabular-nums">{r.g}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center tabular-nums">{r.e}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center tabular-nums">{r.p}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center tabular-nums">{r.dg > 0 ? `+${r.dg}` : r.dg}</td>
+                            <td className="py-1.5 px-1.5 sm:px-2.5 text-center font-black tabular-nums">{r.pts}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -571,51 +640,34 @@ export default function TorneoPage() {
             )}
 
             {tab === 'cuadro' && (
-              <div className="overflow-x-auto pb-2">
-                <div className="grid min-w-[900px] grid-cols-4 gap-4">
-                  {(['R16', 'QF', 'SF', 'F'] as const).map((stage) => {
-                    const ms = (data.partidos ?? [])
-                      .filter((m) => m.stage === stage || (stage === 'F' && m.stage === '3P'))
-                      .sort((a, b) => (a.stage === 'F' ? -1 : 0) - (b.stage === 'F' ? -1 : 0) || (a.bracketPos ?? 0) - (b.bracketPos ?? 0))
-                    return (
-                      <div key={stage} className="flex flex-col justify-around gap-3">
-                        <p className="text-center text-xs font-black tracking-[0.3em] text-primary">
-                          {stage === 'R16' ? 'OCTAVOS' : stage === 'QF' ? 'CUARTOS' : stage === 'SF' ? 'SEMIS' : 'FINAL'}
-                        </p>
-                        {ms.map((m) => (
-                          <div key={m.id}>
-                            {m.stage === '3P' && <p className="text-[10px] text-center text-muted-foreground mb-1">Tercer puesto</p>}
-                            <div
-                              className={`rounded-lg border ${m.stage === 'F' ? 'border-amber-300/60 bg-amber-300/5' : 'border-border/60 bg-card/40'}`}
-                            >
-                              {(['home', 'away'] as const).map((side) => {
-                                const slot = side === 'home' ? m.homeSlot : m.awaySlot
-                                const goals = side === 'home' ? m.homeGoals : m.awayGoals
-                                const p = slot !== null ? bySlot.get(slot) : undefined
-                                return (
-                                  <div
-                                    key={side}
-                                    className={`flex items-center justify-between gap-2 px-3 py-2 text-sm ${side === 'home' ? 'border-b border-border/40' : ''} ${
-                                      m.winnerSlot !== null && m.winnerSlot === slot ? 'font-bold' : ''
-                                    }`}
-                                  >
-                                    {p ? (
-                                      <PlayerChip p={p} mySlot={mySlot} />
-                                    ) : (
-                                      <span className="text-muted-foreground text-xs">{side === 'home' ? m.homeLabel : m.awayLabel}</span>
-                                    )}
-                                    <span className="font-black">{m.status === 'jugado' ? goals : ''}</span>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
+              <>
+                {/* PC: el cuadro clásico, de octavos a la final. */}
+                <div className="hidden md:grid grid-cols-4 gap-4">
+                  {BRACKET_COLUMNS.map((col) => (
+                    <div key={col.label} className="flex flex-col gap-3">
+                      <p className="text-center text-xs font-black tracking-[0.3em] text-primary">{col.label}</p>
+                      <div className="flex flex-1 flex-col justify-around gap-3">
+                        {bracketMatches(data.partidos ?? [], col.stages).map((m) => (
+                          <BracketMatch key={m.id} m={m} bySlot={bySlot} mySlot={mySlot} />
                         ))}
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
                 </div>
-              </div>
+                {/* Celular: fase por fase, de arriba hacia abajo. */}
+                <div className="md:hidden space-y-6">
+                  {[...BRACKET_COLUMNS].reverse().map((col) => (
+                    <section key={col.label}>
+                      <p className="mb-2 text-xs font-black tracking-[0.3em] text-primary">{col.label}</p>
+                      <div className="grid gap-2">
+                        {bracketMatches(data.partidos ?? [], col.stages).map((m) => (
+                          <BracketMatch key={m.id} m={m} bySlot={bySlot} mySlot={mySlot} />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </>
             )}
 
             {torneo.status === 'finalizado' && isCaptain && (
