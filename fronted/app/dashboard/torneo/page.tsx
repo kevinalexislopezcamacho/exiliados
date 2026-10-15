@@ -386,7 +386,21 @@ export default function TorneoPage() {
                     />
                   </div>
                 </div>
-                {data?.canJoin && !data.meInscrito && (
+                {inscritos.length >= total && (
+                  <motion.div
+                    className="mx-auto mt-6 max-w-lg rounded-2xl border-2 border-amber-300/70 bg-gradient-to-b from-amber-400/20 to-amber-500/5 p-5 shadow-[0_0_45px_rgba(251,191,36,0.3)]"
+                    initial={{ scale: 0.85, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 160, damping: 12 }}
+                  >
+                    <p className="text-2xl sm:text-3xl font-black text-amber-300">¡TODOS LLENOS, ESTAMOS LISTOS!</p>
+                    <p className="mt-2 text-sm text-zinc-200">
+                      Ya se completaron los {total} lugares. Esperando a que <b>Chicolinas</b> inicie el torneo: ahí empieza el
+                      sorteo en vivo.
+                    </p>
+                  </motion.div>
+                )}
+                {data?.canJoin && !data.meInscrito && inscritos.length < total && (
                   <Button
                     size="lg"
                     className="mt-6 px-10 text-lg font-black"
@@ -404,9 +418,9 @@ export default function TorneoPage() {
                   >
                     <p className="font-black text-green-400">✓ ¡Estás inscripto!</p>
                     <p className="mt-1 text-sm text-zinc-300">
-                      El torneo iniciará pronto. Cuando se completen los {total} lugares
-                      {inscritos.length < total ? ` (faltan ${total - inscritos.length})` : ''} se hace el sorteo en vivo y vas a
-                      ver en qué grupo caíste.
+                      {inscritos.length >= total
+                        ? 'Cuando Chicolinas inicie el torneo se hace el sorteo en vivo y vas a ver en qué grupo caíste.'
+                        : `El torneo iniciará pronto. Cuando se completen los ${total} lugares (faltan ${total - inscritos.length}) Chicolinas lo inicia y se hace el sorteo en vivo.`}
                     </p>
                     <button
                       className="mt-2 text-xs text-zinc-500 underline hover:text-zinc-300"
@@ -458,17 +472,14 @@ export default function TorneoPage() {
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Con {total} inscriptos el sorteo se hace solo. Si querés arrancar antes, iniciá el torneo: se cierra la
-                  inscripción.{' '}
-                  {inscritos.length > total
-                    ? `Hay ${inscritos.length} inscriptos: entran los ${total} mejores del ranking general.`
-                    : bots > 0
-                      ? `Se completan los ${bots} lugares que faltan con bots.`
-                      : 'Están los 32 completos.'}{' '}
+                  El torneo no arranca solo: lo iniciás vos. Al iniciarlo se cierra la inscripción y empieza el sorteo.{' '}
+                  {bots > 0 ? `Faltan ${bots} lugares: se completan con bots. ` : '¡Están los 32 completos! '}
                   Los bombos se arman según el ranking general.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
+                    size={inscritos.length >= total ? 'lg' : 'default'}
+                    className={inscritos.length >= total ? 'px-8 text-base font-black animate-pulse' : ''}
                     disabled={busy || inscritos.length < 2}
                     onClick={() => {
                       if (confirm(`¿Iniciar el torneo con ${inscritos.length} inscriptos${bots > 0 ? ` y ${bots} bots` : ''}? No se puede deshacer.`)) {
@@ -476,7 +487,7 @@ export default function TorneoPage() {
                       }
                     }}
                   >
-                    Iniciar torneo ahora
+                    {inscritos.length >= total ? '¡INICIAR TORNEO!' : 'Iniciar torneo ahora'}
                   </Button>
                   <Button
                     variant="outline"

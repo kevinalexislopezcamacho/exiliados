@@ -194,7 +194,8 @@ router.delete('/:id', requireSuperAdmin, async (req, res) => {
 })
 
 // POST /api/torneo/inscripcion { inscribir: boolean } - Anotarse o bajarse.
-// Cuando se llenan los 32 lugares, el sorteo se hace solo.
+// Al llenarse los 32 lugares NO se inicia nada solo: solo chicolinas
+// inicia el torneo (POST /sorteo).
 router.post('/inscripcion', requireAuth, async (req, res) => {
   try {
     const db = getDatabase()
@@ -202,18 +203,14 @@ router.post('/inscripcion', requireAuth, async (req, res) => {
     if (!torneo) throw new GameError('No hay torneo abierto')
     const allowed = req.user?.clan === 'rayo' || req.user?.clan === 'exiliados' || req.user?.role === 'captain'
     if (!allowed) throw new GameError('Solo los integrantes de Rayo y Exiliados pueden inscribirse')
-    await setInscripcion(db, torneo, req.user!.id, req.body?.inscribir !== false)
-
-    const count = (await listInscritos(db, torneo.id)).length
-    let drawn = false
-    if (req.body?.inscribir !== false && count >= TOTAL_PLAYERS) {
-      const fresh = await getCurrentTorneo(db)
-      if (fresh?.status === 'inscripcion') {
-        await performDraw(db, fresh)
-        drawn = true
-      }
+    const wantsIn = req.body?.inscribir !== false
+    if (wantsIn) {
+      const inscritos = await listInscritos(db, torneo.id)
+      const already = inscritos.some((i) => i.memberId === req.user!.id)
+      if (!already && inscritos.length >= TOTAL_PLAYERS) throw new GameError('Ya están los 32 lugares completos')
     }
-    res.json({ success: true, drawn })
+    await setInscripcion(db, torneo, req.user!.id, wantsIn)
+    res.json({ success: true })
   } catch (error) {
     sendError(res, error, 'Error con la inscripción')
   }
