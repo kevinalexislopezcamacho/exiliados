@@ -2,6 +2,17 @@ import type { Client } from '@libsql/client'
 import { COUNTRY_NAMES } from './countries'
 import { CAREERS, CRESTS, GRID_PLAYERS, WORLD_CUP_SCORERS, crestUrlFor } from './footballData'
 import { WORDLE_WORDS } from './minigameContent'
+import {
+  GAME_KINDS,
+  GAME_NAMES,
+  applyGameMove,
+  buildGameRound,
+  crestUrlOf,
+  gameView,
+  rayoexiExpired,
+  type GameData,
+  type GameState,
+} from './torneoJuegos'
 import { computeGeneralRanking } from './generalRanking'
 import { dayKey, GameError, hashString, seededRandom, shuffle } from './minigameCore'
 import { GROUPS, computeStandings, type Participante, type Partido, type Torneo } from './torneo'
@@ -25,7 +36,9 @@ export interface RoundQuestion {
 }
 
 export interface MatchPuzzle {
-  rounds: Array<{ type?: string; name: string; questions: RoundQuestion[] }>
+  // v2: 3 rondas de juego + 2 de preguntas, en orden aleatorio.
+  v?: number
+  rounds: Array<{ type?: string; name: string; key?: string; game?: GameData; questions: RoundQuestion[] }>
 }
 
 interface RoundResult {
@@ -34,6 +47,7 @@ interface RoundResult {
 }
 
 interface PlayRow {
+  states_json?: string
   answers_json: string
   rounds_json: string
   round_started_at: number | null
@@ -283,7 +297,59 @@ const ROUND_TYPES: RoundType[] = [
 // Arma las 5 rondas de un partido: sortea 5 tipos de ronda distintos entre
 // los 10 posibles, y en cada una evita las preguntas que alguno de los dos
 // jugadores ya tuvo en el torneo.
+// Rondas de preguntas que pueden salir (las otras ya son juegos reales).
+const QUESTION_ROUND_IDS = ['trivia', 'osm', 'pais', 'ranking', 'goles']
+const GAME_ROUNDS = 3
+const QUESTION_ROUNDS = 2
+
 export async function buildMatchPuzzle(db: Client, matchId: number, used: Set<string>): Promise<MatchPuzzle> {
+  const rand = seededRandom(hashString(`torneo-partido:${matchId}`))
+
+  // Cuántas veces ya jugaron estos jugadores cada tipo: primero los menos vistos.
+  const usage = new Map<string, number>()
+  for (const key of used) usage.set(key.split(':')[0], (usage.get(key.split(':')[0]) ?? 0) + 1)
+  const byUsage = <T extends { id: string }>(items: T[]) =>
+    shuffle(items, rand).sort((a, b) => (usage.get(a.id) ?? 0) - (usage.get(b.id) ?? 0))
+
+  const rounds: MatchPuzzle['rounds'] = []
+
+  // 3 juegos de los 5 posibles.
+  const gameKinds = byUsage(GAME_KINDS.map((id) => ({ id })))
+  const gameRounds: MatchPuzzle['rounds'] = []
+  for (const { id } of gameKinds) {
+    if (gameRounds.length === GAME_ROUNDS) break
+    const built = await buildGameRound(id, { db, rand, used })
+    if (built) gameRounds.push({ type: id, name: GAME_NAMES[id], key: built.key, game: built.game, questions: [] })
+  }
+
+  // 2 rondas de preguntas de las 5 posibles.
+  const questionTypes = byUsage(ROUND_TYPES.filter((t) => QUESTION_ROUND_IDS.includes(t.id)))
+  const questionRounds: MatchPuzzle['rounds'] = []
+  const withRepeats: MatchPuzzle['rounds'] = []
+  for (const type of questionTypes) {
+    if (questionRounds.length === QUESTION_ROUNDS) break
+    const questions = await type.build({ db, rand, used })
+    if (!questions || questions.length < QUESTIONS_PER_ROUND) continue
+    const round = { type: type.id, name: type.name, questions }
+    if (questions.every((q) => !q.key || !used.has(q.key))) questionRounds.push(round)
+    else withRepeats.push(round)
+  }
+  while (questionRounds.length < QUESTION_ROUNDS && withRepeats.length > 0) questionRounds.push(withRepeats.shift()!)
+
+  // Si faltó contenido de un lado, se completa con el otro hasta tener 5.
+  rounds.push(...gameRounds, ...questionRounds)
+  for (const type of questionTypes) {
+    if (rounds.length >= ROUNDS_PER_MATCH) break
+    if (rounds.some((r) => r.type === type.id)) continue
+    const questions = await type.build({ db, rand, used })
+    if (questions && questions.length >= QUESTIONS_PER_ROUND) rounds.push({ type: type.id, name: type.name, questions })
+  }
+  return { v: 2, rounds: shuffle(rounds, rand) }
+}
+
+// Armado anterior (solo preguntas). Ya no se usa; queda por si hay que leer
+// partidos viejos.
+export async function buildLegacyMatchPuzzle(db: Client, matchId: number, used: Set<string>): Promise<MatchPuzzle> {
   const rand = seededRandom(hashString(`torneo-partido:${matchId}`))
 
   // Cuántas veces ya jugaron estos jugadores cada tipo de ronda (según el
@@ -329,7 +395,10 @@ async function usedKeysFor(db: Client, matchId: number) {
   ).rows as unknown as Array<{ puzzle_json: string }>
   for (const r of rows) {
     const puzzle = JSON.parse(r.puzzle_json) as MatchPuzzle
-    for (const round of puzzle.rounds) for (const q of round.questions) if (q.key) used.add(q.key)
+    for (const round of puzzle.rounds) {
+      if (round.key) used.add(round.key)
+      for (const q of round.questions) if (q.key) used.add(q.key)
+    }
   }
   return used
 }
@@ -422,9 +491,138 @@ export async function getPlayProgress(db: Client, matchId: number, slot: number)
     started: !!play,
     answers: play ? (JSON.parse(play.answers_json) as number[]) : [],
     rounds: play ? (JSON.parse(play.rounds_json) as RoundResult[]) : [],
+    states: play ? (JSON.parse(play.states_json || '[]') as Array<GameState & { answers?: unknown[] }>) : [],
+    startedAt: play?.round_started_at ?? null,
     roundActive: !!play && play.round_started_at !== null && !play.finished,
     finished: !!play?.finished,
   }
+}
+
+// ---- Partidos v2 (3 juegos + 2 preguntas) ----
+
+async function saveRound(
+  db: Client,
+  matchId: number,
+  slot: number,
+  states: unknown[],
+  rounds: RoundResult[],
+  roundStartedAt: number | null,
+  finished: boolean
+) {
+  await db.execute({
+    sql: `UPDATE torneo_jugadas SET states_json = ?, rounds_json = ?, round_started_at = ?, finished = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE match_id = ? AND slot = ?`,
+    args: [JSON.stringify(states), JSON.stringify(rounds), roundStartedAt, finished ? 1 : 0, matchId, slot],
+  })
+}
+
+// Una jugada de la ronda en curso: respuesta a una pregunta, intento de
+// palabra o club, casilla de la grilla, etc.
+export async function playMove(db: Client, m: Partido, slot: number, body: any) {
+  if (!isMatchOpen(m)) throw new GameError('Este partido ya no está abierto')
+  const puzzle = await getMatchPuzzle(db, Number(m.id))
+  if (puzzle.v !== 2) throw new GameError('Este partido usa el formato anterior')
+  const play = await getPlayRow(db, Number(m.id), slot)
+  if (!play || play.round_started_at === null) throw new GameError('Primero empezá la ronda')
+  if (play.finished) throw new GameError('Ya jugaste este partido')
+
+  const rounds = JSON.parse(play.rounds_json) as RoundResult[]
+  const states = JSON.parse(play.states_json || '[]') as Array<any>
+  const roundIndex = rounds.length
+  const round = puzzle.rounds[roundIndex]
+  if (!round) throw new GameError('No hay más rondas')
+  const now = Date.now()
+  const startedAt = Number(play.round_started_at)
+
+  let state = states[roundIndex] ?? {}
+  let done = false
+  let score = 0
+  let feedback: Record<string, unknown> | undefined
+
+  if (round.game) {
+    const result = applyGameMove(round.game, state, body, startedAt, now)
+    state = result.state
+    done = result.done
+    score = result.score ?? 0
+    feedback = result.feedback
+  } else {
+    // Ronda de preguntas: responde la siguiente pregunta de las 3.
+    const answers: number[] = [...(state.answers ?? [])]
+    const question = round.questions[answers.length]
+    const answer = Number(body?.answer)
+    if (!question || !Number.isInteger(answer) || answer < 0 || answer >= question.options.length) throw new GameError('Respuesta inválida')
+    answers.push(answer)
+    state = { answers }
+    feedback = { correctIndex: question.correctIndex, correct: answer === question.correctIndex }
+    if (answers.length >= round.questions.length) {
+      done = true
+      score = answers.filter((a, i) => a === round.questions[i].correctIndex).length
+    }
+  }
+
+  states[roundIndex] = state
+  if (done) rounds.push({ score, ms: now - startedAt })
+  const finished = done && rounds.length >= puzzle.rounds.length
+  await saveRound(db, Number(m.id), slot, states, rounds, done ? null : startedAt, finished)
+  return { feedback, roundDone: done, roundScore: done ? score : undefined, finished }
+}
+
+// Si empezó el ¿Rayo o Exi? y cerró la página sin mandar las respuestas, al
+// vencer el tiempo la ronda se cierra con 0.
+export async function settleExpiredRound(db: Client, m: Partido, slot: number) {
+  const play = await getPlayRow(db, Number(m.id), slot)
+  if (!play || play.finished || play.round_started_at === null) return
+  const puzzle = await getMatchPuzzle(db, Number(m.id))
+  if (puzzle.v !== 2) return
+  const rounds = JSON.parse(play.rounds_json) as RoundResult[]
+  const round = puzzle.rounds[rounds.length]
+  if (!round?.game || round.game.kind !== 'rayoexi' || !rayoexiExpired(Number(play.round_started_at))) return
+  const states = JSON.parse(play.states_json || '[]') as Array<any>
+  states[rounds.length] = { answers: [], submitted: true }
+  rounds.push({ score: 0, ms: Date.now() - Number(play.round_started_at) })
+  await saveRound(db, Number(m.id), slot, states, rounds, null, rounds.length >= puzzle.rounds.length)
+}
+
+// Lo que ve el jugador de la ronda en curso (sin respuestas).
+export async function currentRoundView(db: Client, matchId: number, slot: number) {
+  const puzzle = await getMatchPuzzle(db, matchId)
+  const progress = await getPlayProgress(db, matchId, slot)
+  if (puzzle.v !== 2) return { puzzle, progress, current: null as any }
+  const roundIndex = progress.rounds.length
+  const round = puzzle.rounds[roundIndex]
+  if (!round || !progress.roundActive) return { puzzle, progress, current: null as any }
+  const state = (progress.states[roundIndex] ?? {}) as GameState & { answers?: any[] }
+  if (round.game) {
+    return { puzzle, progress, current: { ...gameView(round.game, state, roundIndex, progress.startedAt), name: round.name } }
+  }
+  const qIndex = (state.answers ?? []).length
+  const q = round.questions[qIndex]
+  return {
+    puzzle,
+    progress,
+    current: q
+      ? { kind: 'quiz' as const, roundIndex, questionIndex: qIndex, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null, name: round.name }
+      : null,
+  }
+}
+
+// Escudo de la ronda "Escudo borroso" en curso (el navegador lo pixela).
+export async function crestForActiveRound(db: Client, matchId: number, slot: number) {
+  const puzzle = await getMatchPuzzle(db, matchId)
+  const progress = await getPlayProgress(db, matchId, slot)
+  const round = puzzle.rounds[progress.rounds.length]
+  if (!round?.game || !progress.roundActive) return null
+  return crestUrlOf(round.game)
+}
+
+// Los partidos armados con el formato anterior y sin ninguna jugada se
+// rearman con el nuevo (los que ya tienen jugadas se respetan).
+export async function resetUnplayedLegacyPuzzles(db: Client) {
+  await db.execute(
+    `DELETE FROM torneo_rondas
+     WHERE match_id NOT IN (SELECT match_id FROM torneo_jugadas)
+       AND puzzle_json NOT LIKE '%"v":2%'`
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +738,7 @@ const loserOf = (m: Partido) => (m.winner_slot === m.home_slot ? m.away_slot : m
 // cada vez que alguien abre el torneo o un partido (no hace falta cron).
 export async function advanceTorneo(db: Client, torneo: Torneo) {
   if (torneo.status !== 'en_juego') return
+  await resetUnplayedLegacyPuzzles(db)
   const today = dayKey()
 
   for (let pass = 0; pass < 20; pass++) {

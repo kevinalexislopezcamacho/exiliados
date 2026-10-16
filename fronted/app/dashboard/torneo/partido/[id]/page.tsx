@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth/context'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Flag, formatDay } from '@/components/torneo/shared'
+import { GAME_INTRO, GAME_LABELS, GameRound, RoundReveal, type GameCurrent } from '@/components/torneo/game-rounds'
 import { ArrowLeft, Check, ChevronRight, RefreshCw, X } from 'lucide-react'
 
 interface Side {
@@ -22,6 +23,16 @@ interface Side {
   groupStats: { pj: number; pts: number; dg: number } | null
   groupPosition: number | null
   form: Array<'G' | 'E' | 'P'>
+}
+
+interface QuizCurrent {
+  kind: 'quiz'
+  roundIndex: number
+  questionIndex: number
+  prompt: string
+  options: string[]
+  image: string | null
+  clubs: Array<{ name: string; image: string | null }> | null
 }
 
 interface MatchState {
@@ -54,15 +65,8 @@ interface MatchState {
     roundActive: boolean
     roundNames: string[]
     rounds: number[]
-    answered: Array<{ chosen: number; correctIndex: number }>
-    current: {
-      roundIndex: number
-      questionIndex: number
-      prompt: string
-      options: string[]
-      image: string | null
-      clubs: Array<{ name: string; image: string | null }> | null
-    } | null
+    roundKinds?: string[]
+    current: (QuizCurrent | GameCurrent) & { name?: string } | null
     opponentFinished: boolean
   } | null
   result: {
@@ -166,6 +170,56 @@ export default function PartidoPage() {
     }
   }
 
+  // Resultado de la ronda de juego que se acaba de terminar: se muestra antes
+  // de pasar a la siguiente.
+  const [reveal, setReveal] = useState<{
+    name: string
+    kind: string
+    score: number
+    feedback: Record<string, unknown> | undefined
+    next: MatchState
+    last: boolean
+  } | null>(null)
+
+  // Una jugada de una ronda de juego (intento, casilla, respuestas...).
+  const act = async (body: Record<string, unknown>) => {
+    if (busy) return null
+    const cur = state?.play?.current
+    setBusy(true)
+    setError('')
+    try {
+      const r = await (
+        await fetch(`/api/torneo/partido/${params.id}/jugada`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      ).json()
+      if (!r.success) {
+        setError(r.error || 'No se pudo registrar la jugada')
+        return null
+      }
+      if (r.data.roundDone && cur && cur.kind !== 'quiz') {
+        setReveal({
+          name: cur.name ?? GAME_LABELS[cur.kind],
+          kind: cur.kind,
+          score: r.data.roundScore ?? 0,
+          feedback: r.data.feedback,
+          next: r.data.state,
+          last: !!r.data.finished,
+        })
+      } else {
+        setState(r.data.state)
+      }
+      return r.data
+    } catch {
+      setError('Error de conexión')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const answer = async (index: number) => {
     if (busy || !state?.play?.current) return
     const question = state.play.current
@@ -207,7 +261,9 @@ export default function PartidoPage() {
   const play = state?.play
   const result = state?.result
   const label = p ? (p.stage === 'G' ? `Fecha ${p.matchday} · Grupo ${p.group}` : p.stageLabel) : ''
-  const shown = feedback?.question ?? play?.current ?? null
+  const shownAny = feedback?.question ?? play?.current ?? null
+  const shown = shownAny && shownAny.kind === 'quiz' ? shownAny : null
+  const gameCurrent = play?.current && play.current.kind !== 'quiz' && !reveal ? (play.current as GameCurrent & { name?: string }) : null
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -276,7 +332,7 @@ export default function PartidoPage() {
 
             <p className="text-center text-xs text-zinc-400">
               {p.status === 'jugado' ? 'Partido terminado' : `Se juega del ${formatDay(p.opensDay)} al ${formatDay(p.closesDay)}`}
-              {' · '}5 rondas de 3 preguntas: cada ronda ganada es un gol
+              {' · '}5 rondas (3 minijuegos y 2 de preguntas): cada ronda ganada es un gol
             </p>
 
             {/* Mi partida */}
@@ -292,9 +348,9 @@ export default function PartidoPage() {
                   <div className="text-center space-y-4">
                     <p className="text-3xl font-black">¿Listo para el partido?</p>
                     <p className="text-sm text-zinc-400 max-w-lg mx-auto">
-                      Vas a jugar 5 rondas: {play.roundNames.join(', ')}. Cada ronda tiene 3 preguntas y la gana quien acierte
-                      más: eso es un gol. Si empatan la ronda, nadie mete gol. El tiempo de cada ronda cuenta para el desempate en
-                      eliminatorias, y podés hacer una pausa entre ronda y ronda.
+                      Vas a jugar 5 rondas: 3 minijuegos y 2 de preguntas ({play.roundNames.join(', ')}). Cada ronda da de 0 a 3
+                      puntos y la gana quien saque más: eso es un gol. Si empatan la ronda, nadie mete gol. El tiempo de cada ronda
+                      cuenta para el desempate en eliminatorias, y podés hacer una pausa entre ronda y ronda.
                     </p>
                     <Button size="lg" className="px-10 text-lg font-black" disabled={busy} onClick={start}>
                       ¡EMPEZAR PARTIDO!
@@ -302,10 +358,13 @@ export default function PartidoPage() {
                   </div>
                 )}
 
-                {state.open && play.started && !play.finished && !play.roundActive && !feedback && (
+                {state.open && play.started && !play.finished && !play.roundActive && !feedback && !reveal && (
                   <motion.div className="text-center space-y-4" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
                     <p className="text-xs tracking-[0.4em] text-amber-300">RONDA {play.rounds.length + 1} DE 5</p>
                     <p className="text-3xl sm:text-4xl font-black">{play.roundNames[play.rounds.length]}</p>
+                    {play.roundKinds?.[play.rounds.length] && (
+                      <p className="mx-auto max-w-md text-sm text-zinc-400">{GAME_INTRO[play.roundKinds[play.rounds.length]]}</p>
+                    )}
                     {play.rounds.length > 0 && (
                       <p className="text-sm text-zinc-400">
                         Tus rondas hasta ahora: {play.rounds.map((r) => `${r}/3`).join(' · ')}
@@ -314,6 +373,29 @@ export default function PartidoPage() {
                     <Button size="lg" className="px-10 font-black gap-2" disabled={busy} onClick={start}>
                       Empezar ronda {play.rounds.length + 1} <ChevronRight className="w-5 h-5" />
                     </Button>
+                  </motion.div>
+                )}
+
+                {reveal && (
+                  <RoundReveal
+                    name={reveal.name}
+                    kind={reveal.kind}
+                    score={reveal.score}
+                    feedback={reveal.feedback}
+                    last={reveal.last}
+                    onContinue={() => {
+                      setState(reveal.next)
+                      setReveal(null)
+                    }}
+                  />
+                )}
+
+                {gameCurrent && (
+                  <motion.div key={`game-${gameCurrent.roundIndex}`} className="space-y-4" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }}>
+                    <p className="text-xs font-bold tracking-[0.2em] text-amber-300">
+                      RONDA {gameCurrent.roundIndex + 1} · {gameCurrent.name ?? GAME_LABELS[gameCurrent.kind]}
+                    </p>
+                    <GameRound current={gameCurrent} matchId={p.id} busy={busy} onMove={act} />
                   </motion.div>
                 )}
 
@@ -388,7 +470,7 @@ export default function PartidoPage() {
                   </AnimatePresence>
                 )}
 
-                {play.finished && !feedback && (
+                {play.finished && !feedback && !reveal && (
                   <div className="text-center space-y-3">
                     <p className="text-3xl font-black">¡Terminaste tu partido!</p>
                     <div className="flex justify-center gap-2">

@@ -23,6 +23,10 @@ import {
   QUESTIONS_PER_ROUND,
   advanceTorneo,
   answerQuestion,
+  crestForActiveRound,
+  currentRoundView,
+  playMove,
+  settleExpiredRound,
   getMatchPuzzle,
   getPlayProgress,
   isMatchOpen,
@@ -295,30 +299,33 @@ async function matchState(db: Client, matchId: number, memberId: number) {
   // Mi partida: preguntas ya respondidas (con la correcta) y la actual (sin).
   let play = null
   if (side && m.home_slot !== null && m.away_slot !== null) {
-    const puzzle = await getMatchPuzzle(db, Number(m.id))
-    const progress = await getPlayProgress(db, Number(m.id), mySlot!)
+    await settleExpiredRound(db, m, mySlot!)
+    const view = await currentRoundView(db, Number(m.id), mySlot!)
+    const { puzzle, progress } = view
     const opponentSlot = side === 'home' ? Number(m.away_slot) : Number(m.home_slot)
     const opponentBot = bySlot.get(opponentSlot)!.member_id === null
     const opponentProgress = opponentBot ? null : await getPlayProgress(db, Number(m.id), opponentSlot)
-    const idx = progress.answers.length
-    const roundIndex = Math.floor(idx / QUESTIONS_PER_ROUND)
-    const current =
-      !progress.finished && progress.roundActive && puzzle.rounds[roundIndex]
-        ? (() => {
-            const q = puzzle.rounds[roundIndex].questions[idx % QUESTIONS_PER_ROUND]
-            return { roundIndex, questionIndex: idx % QUESTIONS_PER_ROUND, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null }
-          })()
-        : null
+
+    let current = view.current
+    if (puzzle.v !== 2) {
+      // Formato anterior (solo preguntas): se arma la pregunta actual como antes.
+      const idx = progress.answers.length
+      const roundIndex = Math.floor(idx / QUESTIONS_PER_ROUND)
+      current =
+        !progress.finished && progress.roundActive && puzzle.rounds[roundIndex]
+          ? (() => {
+              const q = puzzle.rounds[roundIndex].questions[idx % QUESTIONS_PER_ROUND]
+              return { kind: 'quiz', roundIndex, questionIndex: idx % QUESTIONS_PER_ROUND, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null }
+            })()
+          : null
+    }
     play = {
       started: progress.started,
       finished: progress.finished,
       roundActive: progress.roundActive,
       roundNames: puzzle.rounds.map((r) => r.name),
+      roundKinds: puzzle.rounds.map((r) => (r.game ? r.game.kind : 'quiz')),
       rounds: progress.rounds.map((r) => r.score),
-      answered: progress.answers.map((chosen, i) => {
-        const q = puzzle.rounds[Math.floor(i / QUESTIONS_PER_ROUND)].questions[i % QUESTIONS_PER_ROUND]
-        return { chosen, correctIndex: q.correctIndex }
-      }),
       current,
       opponentFinished: opponentBot ? true : !!opponentProgress?.finished,
     }
@@ -362,10 +369,54 @@ router.post('/partido/:id/responder', requireAuth, async (req, res) => {
     if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
       throw new GameError('No jugás este partido')
     }
-    const feedback = await answerQuestion(db, m, Number(mySlot), Number(req.body?.answer))
+    const puzzle = await getMatchPuzzle(db, Number(m.id))
+    const feedback =
+      puzzle.v === 2
+        ? (await playMove(db, m, Number(mySlot), { answer: req.body?.answer })).feedback
+        : await answerQuestion(db, m, Number(mySlot), Number(req.body?.answer))
     res.json({ success: true, data: { feedback, state: await matchState(db, Number(req.params.id), req.user!.id) } })
   } catch (error) {
     sendError(res, error, 'Error registrando la respuesta')
+  }
+})
+
+// POST /api/torneo/partido/:id/jugada - Una jugada de la ronda en curso
+// (pregunta, intento de palabra o club, casilla de la grilla, respuestas del
+// ¿Rayo o Exi?).
+router.post('/partido/:id/jugada', requireAuth, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { m, participantes } = await loadMatch(db, Number(req.params.id))
+    const mySlot = participantes.find((p) => Number(p.member_id) === req.user!.id)?.slot
+    if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
+      throw new GameError('No jugás este partido')
+    }
+    const result = await playMove(db, m, Number(mySlot), req.body ?? {})
+    res.json({ success: true, data: { ...result, state: await matchState(db, Number(req.params.id), req.user!.id) } })
+  } catch (error) {
+    sendError(res, error, 'Error registrando la jugada')
+  }
+})
+
+// GET /api/torneo/partido/:id/escudo - Escudo de la ronda "Escudo borroso" en
+// curso. Va por acá para que el navegador no vea de qué club es.
+router.get('/partido/:id/escudo', requireAuth, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { m, participantes } = await loadMatch(db, Number(req.params.id))
+    const mySlot = participantes.find((p) => Number(p.member_id) === req.user!.id)?.slot
+    if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
+      return res.status(403).json({ success: false, error: 'No jugás este partido' })
+    }
+    const url = await crestForActiveRound(db, Number(m.id), Number(mySlot))
+    if (!url) return res.status(404).json({ success: false, error: 'Sin escudo en esta ronda' })
+    const upstream = await fetch(url, { headers: { 'User-Agent': 'exiliados-minijuegos/1.0 (sitio del clan)' } })
+    if (!upstream.ok) return res.status(502).json({ success: false, error: 'No se pudo cargar el escudo' })
+    res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'image/png')
+    res.setHeader('Cache-Control', 'no-store')
+    res.send(Buffer.from(await upstream.arrayBuffer()))
+  } catch (error) {
+    sendError(res, error, 'Error cargando el escudo')
   }
 })
 

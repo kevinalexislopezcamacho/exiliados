@@ -422,6 +422,11 @@ export async function initializeDatabase() {
       PRIMARY KEY (match_id, slot)
     )
   `)
+  // Estado de cada ronda de juego (intentos, casillas...) de la partida.
+  const jugadasCols = (await db.execute(`PRAGMA table_info(torneo_jugadas)`)).rows as unknown as ColumnInfo[]
+  if (!jugadasCols.some((col) => col.name === 'states_json')) {
+    await db.execute(`ALTER TABLE torneo_jugadas ADD COLUMN states_json TEXT NOT NULL DEFAULT '[]'`)
+  }
   await db.execute(`
     CREATE TABLE IF NOT EXISTS torneo_sorteo_visto (
       torneo_id INTEGER NOT NULL,
