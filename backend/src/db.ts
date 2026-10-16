@@ -134,6 +134,11 @@ export async function initializeDatabase() {
     chicolinas: '/warriors/carta-chicolinas.jpeg',
     suazoperez: '/warriors/carta-suazoperez.jpeg',
     exicesar245: '/warriors/carta-exicesar.jpeg',
+    pepeloera: '/warriors/carta-pepeloera.jpeg',
+    yari06: '/warriors/carta-yari06.jpeg',
+    tomicastro4: '/warriors/carta-tomicastro4.jpeg',
+    jauzbeats: '/warriors/carta-jauzbeats.jpeg',
+    drdoom04: '/warriors/carta-drdoom04.jpg',
   }
   const cardRows = (await db.execute(`SELECT id, name FROM clan_members WHERE card_url = ''`)).rows as unknown as Array<{
     id: number
