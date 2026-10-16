@@ -110,6 +110,10 @@ router.get('/', requireAuth, async (req, res) => {
       })
     ).rows[0]
 
+    const cardRows = (await db.execute(`SELECT member_id, card_url FROM clan_members WHERE member_id IS NOT NULL AND card_url != ''`))
+      .rows as unknown as Array<{ member_id: number; card_url: string }>
+    const cardByMember = new Map(cardRows.map((r) => [Number(r.member_id), r.card_url]))
+
     const mySlotRaw = participantes.find((p) => Number(p.member_id) === memberId)?.slot
     const mySlot = mySlotRaw === undefined ? null : Number(mySlotRaw)
     const today = dayKey()
@@ -147,7 +151,7 @@ router.get('/', requireAuth, async (req, res) => {
         canJoin: req.user?.clan === 'rayo' || req.user?.clan === 'exiliados' || req.user?.role === 'captain',
         inscritos,
         meInscrito: inscritos.some((i) => i.memberId === memberId),
-        participantes: participantes.map(participanteView),
+        participantes: participantes.map((p) => ({ ...participanteView(p), cardUrl: cardByMember.get(Number(p.member_id)) ?? '' })),
         drawOrder: torneo.draw_json ? (JSON.parse(torneo.draw_json) as number[]) : [],
         drawSeen,
         mySlot,

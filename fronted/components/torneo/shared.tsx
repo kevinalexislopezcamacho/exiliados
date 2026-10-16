@@ -10,6 +10,7 @@ export interface TorneoParticipante {
   pot: number
   group: string
   groupPos: number
+  cardUrl?: string
 }
 
 export interface TorneoPartido {

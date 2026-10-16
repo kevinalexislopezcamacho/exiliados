@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { DrawCeremony } from '@/components/torneo/draw-ceremony'
+import { PodiumCeremony } from '@/components/torneo/podium-ceremony'
 import { Flag, formatDay, type TorneoData, type TorneoParticipante, type TorneoPartido } from '@/components/torneo/shared'
 import { ArrowLeft, CalendarDays, Clapperboard, Network, Trophy, Users } from 'lucide-react'
 
@@ -237,6 +238,7 @@ export default function TorneoPage() {
   const [replay, setReplay] = useState(false)
   const [newName, setNewName] = useState('Mundial Exiliados')
   const [prizeDraft, setPrizeDraft] = useState<string | null>(null)
+  const [showPodium, setShowPodium] = useState(false)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -299,6 +301,19 @@ export default function TorneoPage() {
           setReplay(false)
           if (!data.drawSeen) post('/api/torneo/sorteo-visto')
         }}
+      />
+    )
+  }
+
+  if (showPodium && data?.podium && data.podium.champion !== null && torneo) {
+    return (
+      <PodiumCeremony
+        torneoName={torneo.name}
+        prize={torneo.prize}
+        first={bySlot.get(data.podium.champion)}
+        second={data.podium.runnerUp !== null ? bySlot.get(data.podium.runnerUp) : undefined}
+        third={data.podium.third !== null ? bySlot.get(data.podium.third) : undefined}
+        onClose={() => setShowPodium(false)}
       />
     )
   }
@@ -526,6 +541,9 @@ export default function TorneoPage() {
                     {data.podium.runnerUp !== null && <span>🥈 {bySlot.get(data.podium.runnerUp)?.name}</span>}
                     {data.podium.third !== null && <span>🥉 {bySlot.get(data.podium.third)?.name}</span>}
                   </div>
+                  <Button size="lg" className="mt-6 gap-2 px-10 text-lg font-black animate-pulse" onClick={() => setShowPodium(true)}>
+                    🏆 VER PODIO
+                  </Button>
                 </div>
               </section>
             )}
