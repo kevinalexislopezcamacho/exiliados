@@ -260,21 +260,17 @@ export default function PartidoPage() {
     const back = () => {
       away = false
     }
+    // Solo cuenta cuando la pestaña se oculta (otra pestaña, otra app, minimizar).
+    // Ya no se usa "blur": el teclado del celular y los campos de texto lo disparan
+    // sin que el jugador haya salido de la página.
     const onVisibility = () => (document.visibilityState === 'hidden' ? leave() : back())
-    const onFocus = () => {
-      if (document.visibilityState === 'visible') back()
-    }
     window.addEventListener('beforeunload', onUnload)
     window.addEventListener('pagehide', onUnload)
     document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('blur', leave)
-    window.addEventListener('focus', onFocus)
     return () => {
       window.removeEventListener('beforeunload', onUnload)
       window.removeEventListener('pagehide', onUnload)
       document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('blur', leave)
-      window.removeEventListener('focus', onFocus)
     }
   }, [params.id])
 
@@ -359,12 +355,12 @@ export default function PartidoPage() {
               <p className="mt-3 text-sm text-zinc-300">No se permite hacer trampa.</p>
               {cheat.lost ? (
                 <p className="mt-2 text-sm text-zinc-300">
-                  Ya habías recibido una advertencia, así que perdiste la ronda{cheat.roundName ? <b> «{cheat.roundName}»</b> : null} (0 puntos). Cada vez que salgas de la ventana en plena ronda
+                  Ya habías recibido una advertencia, así que perdiste la ronda{cheat.roundName ? <b> «{cheat.roundName}»</b> : null} (0 puntos). Cada vez que cambies de pestaña en plena ronda
                   perderás la que estés jugando.
                 </p>
               ) : (
                 <p className="mt-2 text-sm text-zinc-300">
-                  Esta es tu única advertencia: <b className="text-red-300">la próxima vez que salgas de la ventana perderás la ronda</b>.
+                  Esta es tu única advertencia: <b className="text-red-300">la próxima vez que cambies de pestaña perderás la ronda</b>.
                 </p>
               )}
               <Button size="lg" className="mt-5 w-full font-black" onClick={() => setCheat(null)}>
@@ -457,7 +453,7 @@ export default function PartidoPage() {
                     <p className="mx-auto flex max-w-lg items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-xs text-red-200">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>
-                        <b>Anti trampa:</b> durante una ronda no puedes cambiar de ventana ni de pestaña. La primera vez recibes una advertencia y,
+                        <b>Anti trampa:</b> durante una ronda no puedes irte a otra pestaña ni a otra app (usar el teclado no cuenta). La primera vez recibes una advertencia y,
                         si vuelve a pasar, pierdes la ronda que estés jugando.
                       </span>
                     </p>
@@ -512,8 +508,8 @@ export default function PartidoPage() {
                   >
                     {(play.strikes ?? 0) > 0 ? <ShieldAlert className="h-4 w-4 shrink-0" /> : <Lock className="h-4 w-4 shrink-0" />}
                     {(play.strikes ?? 0) > 0
-                      ? 'Ya usaste tu advertencia: si sales de la ventana otra vez, pierdes la ronda'
-                      : 'Anti trampa activo: no cambies de ventana durante la ronda'}
+                      ? 'Ya usaste tu advertencia: si cambias de pestaña otra vez, pierdes la ronda'
+                      : 'Anti trampa activo: no cambies de pestaña durante la ronda'}
                   </p>
                 )}
 
