@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Flag, formatDay } from '@/components/torneo/shared'
 import { GAME_INTRO, GAME_LABELS, GameRound, RoundReveal, type GameCurrent } from '@/components/torneo/game-rounds'
-import { ArrowLeft, Check, ChevronRight, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Lock, RefreshCw, ShieldAlert, X } from 'lucide-react'
 
 interface Side {
   slot: number
@@ -63,6 +63,7 @@ interface MatchState {
     started: boolean
     finished: boolean
     roundActive: boolean
+    strikes?: number
     roundNames: string[]
     rounds: number[]
     roundKinds?: string[]
@@ -220,6 +221,48 @@ export default function PartidoPage() {
     }
   }
 
+  // Anti trampa: si sale de la ventana en plena ronda, la primera vez es un
+  // aviso y después pierde la ronda (lo decide el servidor).
+  const [cheat, setCheat] = useState<{ strikes: number; lost: boolean; roundName: string } | null>(null)
+  const roundLive = !!state && state.open && state.partido.status === 'pendiente' && !!state.play?.roundActive && !reveal
+  const liveRef = useRef(false)
+  liveRef.current = roundLive
+  useEffect(() => {
+    let away = false
+    const report = async () => {
+      try {
+        const r = await (await fetch(`/api/torneo/partido/${params.id}/trampa`, { method: 'POST', keepalive: true })).json()
+        if (r.success) {
+          setCheat({ strikes: r.data.strikes, lost: r.data.lost, roundName: r.data.roundName ?? '' })
+          setFeedback(null)
+          setState(r.data.state)
+        }
+      } catch {
+        // sin conexión: no se puede registrar
+      }
+    }
+    const leave = () => {
+      if (!liveRef.current || away) return
+      away = true
+      report()
+    }
+    const back = () => {
+      away = false
+    }
+    const onVisibility = () => (document.visibilityState === 'hidden' ? leave() : back())
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') back()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', leave)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', leave)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [params.id])
+
   const answer = async (index: number) => {
     if (busy || !state?.play?.current) return
     const question = state.play.current
@@ -272,6 +315,45 @@ export default function PartidoPage() {
         <div className="absolute -top-1/3 -left-1/4 w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle,rgba(220,38,38,0.3),transparent_60%)]" />
         <div className="absolute -bottom-1/3 -right-1/4 w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.15),transparent_60%)]" />
       </div>
+
+      <AnimatePresence>
+        {cheat && (
+          <motion.div
+            key="cheat"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 px-4 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-md rounded-2xl border-2 border-red-500 bg-zinc-950 p-6 text-center shadow-[0_0_60px_rgba(239,68,68,0.45)]"
+              initial={{ scale: 0.7, rotate: -3 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 15 }}
+            >
+              <motion.div animate={{ scale: [1, 1.15, 1] }} transition={{ duration: 0.9, repeat: Infinity }}>
+                <ShieldAlert className="mx-auto h-16 w-16 text-red-500" />
+              </motion.div>
+              <p className="mt-3 text-xs font-bold tracking-[0.35em] text-red-400">{cheat.lost ? 'RONDA PERDIDA' : 'ADVERTENCIA'}</p>
+              <h2 className="mt-1 text-2xl font-black sm:text-3xl">¡Cambiaste de ventana!</h2>
+              <p className="mt-3 text-sm text-zinc-300">No se permite hacer trampa.</p>
+              {cheat.lost ? (
+                <p className="mt-2 text-sm text-zinc-300">
+                  Ya habías recibido una advertencia, así que perdiste la ronda{cheat.roundName ? <b> «{cheat.roundName}»</b> : null} (0 puntos). Cada vez que salgas de la ventana en plena ronda
+                  perderás la que estés jugando.
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-300">
+                  Esta es tu única advertencia: <b className="text-red-300">la próxima vez que salgas de la ventana perderás la ronda</b>.
+                </p>
+              )}
+              <Button size="lg" className="mt-5 w-full font-black" onClick={() => setCheat(null)}>
+                {cheat.lost ? 'Continuar' : 'Entendido, sigo jugando'}
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <header className="relative z-10 border-b border-white/10 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4 flex items-center gap-3">
@@ -352,6 +434,13 @@ export default function PartidoPage() {
                       puntos y la gana quien saque más: eso es un gol. Si empatan la ronda, nadie mete gol. El tiempo de cada ronda
                       cuenta para el desempate en eliminatorias, y podés hacer una pausa entre ronda y ronda.
                     </p>
+                    <p className="mx-auto flex max-w-lg items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-xs text-red-200">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        <b>Anti trampa:</b> durante una ronda no puedes cambiar de ventana ni de pestaña. La primera vez recibes una advertencia y,
+                        si vuelve a pasar, pierdes la ronda que estés jugando.
+                      </span>
+                    </p>
                     <Button size="lg" className="px-10 text-lg font-black" disabled={busy} onClick={start}>
                       ¡EMPEZAR PARTIDO!
                     </Button>
@@ -388,6 +477,19 @@ export default function PartidoPage() {
                       setReveal(null)
                     }}
                   />
+                )}
+
+                {play.roundActive && !reveal && (
+                  <p
+                    className={`mb-4 flex items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-center text-xs ${
+                      (play.strikes ?? 0) > 0 ? 'border-red-500/50 bg-red-500/15 text-red-200' : 'border-white/10 bg-white/5 text-zinc-400'
+                    }`}
+                  >
+                    {(play.strikes ?? 0) > 0 ? <ShieldAlert className="h-4 w-4 shrink-0" /> : <Lock className="h-4 w-4 shrink-0" />}
+                    {(play.strikes ?? 0) > 0
+                      ? 'Ya usaste tu advertencia: si sales de la ventana otra vez, pierdes la ronda'
+                      : 'Anti trampa activo: no cambies de ventana durante la ronda'}
+                  </p>
                 )}
 
                 {gameCurrent && (

@@ -52,6 +52,7 @@ interface PlayRow {
   rounds_json: string
   round_started_at: number | null
   finished: number
+  strikes?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +496,7 @@ export async function getPlayProgress(db: Client, matchId: number, slot: number)
     startedAt: play?.round_started_at ?? null,
     roundActive: !!play && play.round_started_at !== null && !play.finished,
     finished: !!play?.finished,
+    strikes: Number(play?.strikes ?? 0),
   }
 }
 
@@ -565,6 +567,31 @@ export async function playMove(db: Client, m: Partido, slot: number, body: any) 
   const finished = done && rounds.length >= puzzle.rounds.length
   await saveRound(db, Number(m.id), slot, states, rounds, done ? null : startedAt, finished)
   return { feedback, roundDone: done, roundScore: done ? score : undefined, finished }
+}
+
+// Anti trampa: salió de la ventana en plena ronda. La primera vez es un aviso;
+// de ahí en adelante pierde la ronda en curso (0 puntos).
+export async function registerStrike(db: Client, m: Partido, slot: number) {
+  if (!isMatchOpen(m)) throw new GameError('Este partido ya no está abierto')
+  const puzzle = await getMatchPuzzle(db, Number(m.id))
+  if (puzzle.v !== 2) throw new GameError('Este partido usa el formato anterior')
+  const play = await getPlayRow(db, Number(m.id), slot)
+  if (!play || play.round_started_at === null || play.finished) throw new GameError('No hay una ronda en curso')
+
+  const strikes = Number(play.strikes ?? 0) + 1
+  await db.execute({ sql: 'UPDATE torneo_jugadas SET strikes = ? WHERE match_id = ? AND slot = ?', args: [strikes, Number(m.id), slot] })
+  if (strikes === 1) return { strikes, lost: false as const }
+
+  const rounds = JSON.parse(play.rounds_json) as RoundResult[]
+  const states = JSON.parse(play.states_json || '[]') as Array<any>
+  const roundIndex = rounds.length
+  const round = puzzle.rounds[roundIndex]
+  const startedAt = Number(play.round_started_at)
+  states[roundIndex] = { ...(states[roundIndex] ?? {}), forfeited: true, submitted: true }
+  rounds.push({ score: 0, ms: Date.now() - startedAt })
+  const finished = rounds.length >= puzzle.rounds.length
+  await saveRound(db, Number(m.id), slot, states, rounds, null, finished)
+  return { strikes, lost: true as const, roundName: round?.name ?? '', finished }
 }
 
 // Si empezó el ¿Rayo o Exi? y cerró la página sin mandar las respuestas, al

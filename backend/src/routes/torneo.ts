@@ -26,6 +26,7 @@ import {
   crestForActiveRound,
   currentRoundView,
   playMove,
+  registerStrike,
   settleExpiredRound,
   getMatchPuzzle,
   getPlayProgress,
@@ -327,6 +328,7 @@ async function matchState(db: Client, matchId: number, memberId: number) {
       started: progress.started,
       finished: progress.finished,
       roundActive: progress.roundActive,
+      strikes: progress.strikes,
       roundNames: puzzle.rounds.map((r) => r.name),
       roundKinds: puzzle.rounds.map((r) => (r.game ? r.game.kind : 'quiz')),
       rounds: progress.rounds.map((r) => r.score),
@@ -399,6 +401,23 @@ router.post('/partido/:id/jugada', requireAuth, async (req, res) => {
     res.json({ success: true, data: { ...result, state: await matchState(db, Number(req.params.id), req.user!.id) } })
   } catch (error) {
     sendError(res, error, 'Error registrando la jugada')
+  }
+})
+
+// POST /api/torneo/partido/:id/trampa - Salió de la ventana en plena ronda
+// (anti trampa): aviso la primera vez, después pierde la ronda.
+router.post('/partido/:id/trampa', requireAuth, async (req, res) => {
+  try {
+    const db = getDatabase()
+    const { m, participantes } = await loadMatch(db, Number(req.params.id))
+    const mySlot = participantes.find((p) => Number(p.member_id) === req.user!.id)?.slot
+    if (mySlot === undefined || (Number(m.home_slot) !== Number(mySlot) && Number(m.away_slot) !== Number(mySlot))) {
+      throw new GameError('No jugás este partido')
+    }
+    const result = await registerStrike(db, m, Number(mySlot))
+    res.json({ success: true, data: { ...result, state: await matchState(db, Number(req.params.id), req.user!.id) } })
+  } catch (error) {
+    sendError(res, error, 'Error registrando el aviso')
   }
 })
 

@@ -427,6 +427,10 @@ export async function initializeDatabase() {
   if (!jugadasCols.some((col) => col.name === 'states_json')) {
     await db.execute(`ALTER TABLE torneo_jugadas ADD COLUMN states_json TEXT NOT NULL DEFAULT '[]'`)
   }
+  // Anti trampa: veces que salió de la ventana durante una ronda.
+  if (!jugadasCols.some((col) => col.name === 'strikes')) {
+    await db.execute(`ALTER TABLE torneo_jugadas ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0`)
+  }
   await db.execute(`
     CREATE TABLE IF NOT EXISTS torneo_sorteo_visto (
       torneo_id INTEGER NOT NULL,
