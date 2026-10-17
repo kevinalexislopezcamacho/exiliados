@@ -34,6 +34,7 @@ import {
   matchBreakdown,
   startOrResume,
 } from '../lib/torneoPartidos'
+import { roundLimitSec } from '../lib/torneoJuegos'
 
 const router = Router()
 
@@ -331,6 +332,7 @@ async function matchState(db: Client, matchId: number, memberId: number) {
       strikes: progress.strikes,
       roundNames: puzzle.rounds.map((r) => r.name),
       roundKinds: puzzle.rounds.map((r) => (r.game ? r.game.kind : 'quiz')),
+      roundLimits: puzzle.rounds.map((r) => roundLimitSec(r.type)),
       rounds: progress.rounds.map((r) => r.score),
       current,
       opponentFinished: opponentBot ? true : !!opponentProgress?.finished,
@@ -376,11 +378,9 @@ router.post('/partido/:id/responder', requireAuth, async (req, res) => {
       throw new GameError('No jugás este partido')
     }
     const puzzle = await getMatchPuzzle(db, Number(m.id))
-    const feedback =
-      puzzle.v === 2
-        ? (await playMove(db, m, Number(mySlot), { answer: req.body?.answer })).feedback
-        : await answerQuestion(db, m, Number(mySlot), Number(req.body?.answer))
-    res.json({ success: true, data: { feedback, state: await matchState(db, Number(req.params.id), req.user!.id) } })
+    const moved = puzzle.v === 2 ? await playMove(db, m, Number(mySlot), { answer: req.body?.answer }) : null
+    const feedback = moved ? moved.feedback : await answerQuestion(db, m, Number(mySlot), Number(req.body?.answer))
+    res.json({ success: true, data: { feedback, timedOut: !!moved?.timedOut, roundScore: moved?.roundScore, state: await matchState(db, Number(req.params.id), req.user!.id) } })
   } catch (error) {
     sendError(res, error, 'Error registrando la respuesta')
   }

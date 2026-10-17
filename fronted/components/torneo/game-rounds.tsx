@@ -478,6 +478,69 @@ export function GameRound({ current, matchId, busy, onMove }: { current: GameCur
   }
 }
 
+// Cronómetro de la ronda: un aro que se vacía con los segundos en el centro.
+// Cambia de verde a ámbar a rojo y en los últimos 10 segundos late. Al llegar
+// a cero avisa (onExpire) hasta que el servidor cierra la ronda.
+export function RoundTimer({ limitSec, remainingMs, onExpire }: { limitSec: number; remainingMs: number; onExpire: () => void }) {
+  const [deadline] = useState(() => Date.now() + remainingMs)
+  const [now, setNow] = useState(() => Date.now())
+  const expire = useRef(onExpire)
+  expire.current = onExpire
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(t)
+  }, [])
+
+  const remaining = Math.max(0, deadline - now)
+  const over = remaining <= 0
+  useEffect(() => {
+    if (!over) return
+    expire.current()
+    const t = setInterval(() => expire.current(), 1500)
+    return () => clearInterval(t)
+  }, [over])
+
+  const frac = Math.min(1, remaining / (limitSec * 1000))
+  const secs = Math.ceil(remaining / 1000)
+  const urgent = secs <= 10
+  const color = frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444'
+  const R = 26
+  const C = 2 * Math.PI * R
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${urgent ? 'border-red-500/60 bg-red-500/10' : 'border-white/10 bg-white/5'}`}
+    >
+      <motion.div className="relative h-16 w-16 shrink-0" animate={urgent && !over ? { scale: [1, 1.07, 1] } : { scale: 1 }} transition={{ duration: 1, repeat: urgent ? Infinity : 0 }}>
+        <svg viewBox="0 0 64 64" className="h-full w-full -rotate-90">
+          <circle cx="32" cy="32" r={R} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6" />
+          <circle
+            cx="32"
+            cy="32"
+            r={R}
+            fill="none"
+            stroke={color}
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={C}
+            strokeDashoffset={C * (1 - frac)}
+            style={{ transition: 'stroke-dashoffset 0.25s linear, stroke 0.4s', filter: `drop-shadow(0 0 4px ${color})` }}
+          />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-[15px] font-black tabular-nums" style={{ color }}>
+          {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+        </span>
+      </motion.div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold tracking-[0.3em] text-zinc-400">{over ? 'TIEMPO AGOTADO' : urgent ? '¡APÚRATE!' : 'TIEMPO DE LA RONDA'}</p>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full rounded-full" style={{ width: `${frac * 100}%`, background: color, transition: 'width 0.25s linear, background 0.4s' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Resultado de una ronda de juego recién terminada.
 export function RoundReveal({
   name,
@@ -498,12 +561,12 @@ export function RoundReveal({
     kind === 'wordle' || kind === 'escudo' || kind === 'trayectoria'
       ? feedback?.won
         ? `¡Acertaste! Era ${feedback.answer}`
-        : `No salió. Era ${feedback?.answer}`
+        : `${feedback?.timedOut ? 'Se acabó el tiempo. ' : 'No salió. '}Era ${feedback?.answer}`
       : kind === 'rayoexi'
         ? feedback?.late
           ? 'Se acabó el tiempo.'
           : `${feedback?.correct} de ${feedback?.total} correctas`
-        : `${feedback?.filled} de 4 casillas completadas`
+        : `${feedback?.timedOut ? 'Se acabó el tiempo: ' : ''}${feedback?.filled} de 4 casillas completadas`
   return (
     <motion.div className="space-y-4 py-4 text-center" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
       <p className="text-xs tracking-[0.4em] text-amber-300">{name.toUpperCase()}</p>

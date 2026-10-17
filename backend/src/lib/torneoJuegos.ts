@@ -33,6 +33,24 @@ export const GAME_NAMES: Record<GameRoundKind, string> = {
 
 export const GAME_ATTEMPTS = 6
 export const RAYOEXI_SECONDS = 20
+
+// Tiempo máximo de cada ronda (segundos), según el juego y su dificultad.
+// Las rondas de preguntas cuentan las 3 preguntas juntas.
+export const ROUND_SECONDS: Record<string, number> = {
+  wordle: 120,
+  escudo: 60,
+  trayectoria: 75,
+  rayoexi: RAYOEXI_SECONDS,
+  grilla: 150,
+  trivia: 60,
+  osm: 75,
+  pais: 45,
+  ranking: 75,
+  goles: 60,
+}
+export const roundLimitSec = (type: string | undefined) => (type ? ROUND_SECONDS[type] : undefined) ?? 90
+// Margen para la demora de la red al mandar una jugada justo al límite.
+export const TIMER_GRACE_MS = 3_000
 export const RAYOEXI_NAMES = 10
 const RAYOEXI_GRACE_MS = 5_000
 const CREST_LEVELS = [5, 8, 12, 18, 28, 44]
@@ -189,7 +207,7 @@ function rayoexiScore(correct: number) {
   return correct >= 9 ? 3 : correct >= 7 ? 2 : correct >= 5 ? 1 : 0
 }
 
-function gridScore(filled: number) {
+export function gridScore(filled: number) {
   return filled >= 4 ? 3 : filled === 3 ? 2 : filled === 2 ? 1 : 0
 }
 

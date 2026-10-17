@@ -13,6 +13,7 @@ import {
   type GameData,
   type GameState,
 } from './torneoJuegos'
+import { TIMER_GRACE_MS, gridScore, roundLimitSec } from './torneoJuegos'
 import { computeGeneralRanking } from './generalRanking'
 import { dayKey, GameError, hashString, seededRandom, shuffle } from './minigameCore'
 import { GROUPS, computeStandings, type Participante, type Partido, type Torneo } from './torneo'
@@ -536,6 +537,17 @@ export async function playMove(db: Client, m: Partido, slot: number, body: any) 
   const now = Date.now()
   const startedAt = Number(play.round_started_at)
 
+  // Tiempo de la ronda: vencida, se cierra con lo que lleve. "tick" es el aviso
+  // del cronómetro de la página cuando llega a cero.
+  const limitMs = roundLimitSec(round.type) * 1000
+  if (round.type !== 'rayoexi') {
+    const expired = body?.tick ? now >= startedAt + limitMs - 800 : now > startedAt + limitMs + TIMER_GRACE_MS
+    if (expired) return closeByTimeout(db, m, slot, puzzle, play)
+    if (body?.tick) return { feedback: undefined, roundDone: false, roundScore: undefined, finished: false, timedOut: false }
+  } else if (body?.tick) {
+    return { feedback: undefined, roundDone: false, roundScore: undefined, finished: false, timedOut: false }
+  }
+
   let state = states[roundIndex] ?? {}
   let done = false
   let score = 0
@@ -566,7 +578,36 @@ export async function playMove(db: Client, m: Partido, slot: number, body: any) 
   if (done) rounds.push({ score, ms: now - startedAt })
   const finished = done && rounds.length >= puzzle.rounds.length
   await saveRound(db, Number(m.id), slot, states, rounds, done ? null : startedAt, finished)
-  return { feedback, roundDone: done, roundScore: done ? score : undefined, finished }
+  return { feedback, roundDone: done, roundScore: done ? score : undefined, finished, timedOut: false }
+}
+
+// Se acabó el tiempo de la ronda: cuenta lo que alcanzó a hacer.
+async function closeByTimeout(db: Client, m: Partido, slot: number, puzzle: MatchPuzzle, play: PlayRow) {
+  const rounds = JSON.parse(play.rounds_json) as RoundResult[]
+  const states = JSON.parse(play.states_json || '[]') as Array<any>
+  const roundIndex = rounds.length
+  const round = puzzle.rounds[roundIndex]
+  const state = states[roundIndex] ?? {}
+  let score = 0
+  let feedback: Record<string, unknown> = { timedOut: true }
+  if (round.game) {
+    const g = round.game
+    if (g.kind === 'wordle') feedback = { timedOut: true, won: false, answer: g.word }
+    else if (g.kind === 'escudo' || g.kind === 'trayectoria') feedback = { timedOut: true, won: false, answer: g.answer }
+    else if (g.kind === 'grilla') {
+      const filled = (state.cells ?? []).filter(Boolean).length
+      score = gridScore(filled)
+      feedback = { timedOut: true, filled }
+    } else feedback = { timedOut: true, late: true }
+  } else {
+    const answers: number[] = state.answers ?? []
+    score = answers.filter((a, i) => a === round.questions[i]?.correctIndex).length
+  }
+  states[roundIndex] = { ...state, timedOut: true, submitted: true }
+  rounds.push({ score, ms: roundLimitSec(round.type) * 1000 })
+  const finished = rounds.length >= puzzle.rounds.length
+  await saveRound(db, Number(m.id), slot, states, rounds, null, finished)
+  return { feedback, roundDone: true, roundScore: score, finished, timedOut: true }
 }
 
 // Anti trampa: salió de la ventana en plena ronda. La primera vez es un aviso;
@@ -603,11 +644,18 @@ export async function settleExpiredRound(db: Client, m: Partido, slot: number) {
   if (puzzle.v !== 2) return
   const rounds = JSON.parse(play.rounds_json) as RoundResult[]
   const round = puzzle.rounds[rounds.length]
-  if (!round?.game || round.game.kind !== 'rayoexi' || !rayoexiExpired(Number(play.round_started_at))) return
-  const states = JSON.parse(play.states_json || '[]') as Array<any>
-  states[rounds.length] = { answers: [], submitted: true }
-  rounds.push({ score: 0, ms: Date.now() - Number(play.round_started_at) })
-  await saveRound(db, Number(m.id), slot, states, rounds, null, rounds.length >= puzzle.rounds.length)
+  if (!round) return
+  if (round.game?.kind === 'rayoexi') {
+    if (!rayoexiExpired(Number(play.round_started_at))) return
+    const states = JSON.parse(play.states_json || '[]') as Array<any>
+    states[rounds.length] = { answers: [], submitted: true }
+    rounds.push({ score: 0, ms: Date.now() - Number(play.round_started_at) })
+    await saveRound(db, Number(m.id), slot, states, rounds, null, rounds.length >= puzzle.rounds.length)
+    return
+  }
+  if (Date.now() > Number(play.round_started_at) + roundLimitSec(round.type) * 1000 + TIMER_GRACE_MS) {
+    await closeByTimeout(db, m, slot, puzzle, play)
+  }
 }
 
 // Lo que ve el jugador de la ronda en curso (sin respuestas).
@@ -619,8 +667,10 @@ export async function currentRoundView(db: Client, matchId: number, slot: number
   const round = puzzle.rounds[roundIndex]
   if (!round || !progress.roundActive) return { puzzle, progress, current: null as any }
   const state = (progress.states[roundIndex] ?? {}) as GameState & { answers?: any[] }
+  const limitSec = roundLimitSec(round.type)
+  const timer = { limitSec, remainingMs: Math.max(0, Number(progress.startedAt) + limitSec * 1000 - Date.now()) }
   if (round.game) {
-    return { puzzle, progress, current: { ...gameView(round.game, state, roundIndex, progress.startedAt), name: round.name } }
+    return { puzzle, progress, current: { ...gameView(round.game, state, roundIndex, progress.startedAt), name: round.name, timer } }
   }
   const qIndex = (state.answers ?? []).length
   const q = round.questions[qIndex]
@@ -628,7 +678,7 @@ export async function currentRoundView(db: Client, matchId: number, slot: number
     puzzle,
     progress,
     current: q
-      ? { kind: 'quiz' as const, roundIndex, questionIndex: qIndex, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null, name: round.name }
+      ? { kind: 'quiz' as const, roundIndex, questionIndex: qIndex, prompt: q.prompt, options: q.options, image: q.image ?? null, clubs: q.clubs ?? null, name: round.name, timer }
       : null,
   }
 }

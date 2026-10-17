@@ -8,8 +8,8 @@ import { useAuth } from '@/lib/auth/context'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Flag, formatDay } from '@/components/torneo/shared'
-import { GAME_INTRO, GAME_LABELS, GameRound, RoundReveal, type GameCurrent } from '@/components/torneo/game-rounds'
-import { ArrowLeft, Check, ChevronRight, Lock, RefreshCw, ShieldAlert, X } from 'lucide-react'
+import { GAME_INTRO, GAME_LABELS, GameRound, RoundReveal, RoundTimer, type GameCurrent } from '@/components/torneo/game-rounds'
+import { ArrowLeft, Check, ChevronRight, Lock, RefreshCw, ShieldAlert, Timer, X } from 'lucide-react'
 
 interface Side {
   slot: number
@@ -67,7 +67,8 @@ interface MatchState {
     roundNames: string[]
     rounds: number[]
     roundKinds?: string[]
-    current: (QuizCurrent | GameCurrent) & { name?: string } | null
+    roundLimits?: number[]
+    current: (QuizCurrent | GameCurrent) & { name?: string; timer?: { limitSec: number; remainingMs: number } } | null
     opponentFinished: boolean
   } | null
   result: {
@@ -157,7 +158,11 @@ export default function PartidoPage() {
     return () => clearInterval(t)
   }, [waiting, load])
 
+  const [notice, setNotice] = useState('')
+  const fmtLimit = (sec: number) => (sec < 60 ? `${sec} segundos` : sec % 60 === 0 ? `${sec / 60} ${sec === 60 ? 'minuto' : 'minutos'}` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} minutos`)
+
   const start = async () => {
+    setNotice('')
     setBusy(true)
     setError('')
     try {
@@ -210,6 +215,7 @@ export default function PartidoPage() {
           last: !!r.data.finished,
         })
       } else {
+        if (r.data.timedOut && cur) setNotice(`⏰ Se acabó el tiempo en «${cur.name ?? 'la ronda'}»: sumaste ${r.data.roundScore ?? 0}/3`)
         setState(r.data.state)
       }
       return r.data
@@ -229,6 +235,11 @@ export default function PartidoPage() {
   liveRef.current = roundLive
   useEffect(() => {
     let away = false
+    // Recargar o cerrar la página también dispara "visibilitychange": no es trampa.
+    let unloading = false
+    const onUnload = () => {
+      unloading = true
+    }
     const report = async () => {
       try {
         const r = await (await fetch(`/api/torneo/partido/${params.id}/trampa`, { method: 'POST', keepalive: true })).json()
@@ -242,7 +253,7 @@ export default function PartidoPage() {
       }
     }
     const leave = () => {
-      if (!liveRef.current || away) return
+      if (!liveRef.current || away || unloading) return
       away = true
       report()
     }
@@ -253,10 +264,14 @@ export default function PartidoPage() {
     const onFocus = () => {
       if (document.visibilityState === 'visible') back()
     }
+    window.addEventListener('beforeunload', onUnload)
+    window.addEventListener('pagehide', onUnload)
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('blur', leave)
     window.addEventListener('focus', onFocus)
     return () => {
+      window.removeEventListener('beforeunload', onUnload)
+      window.removeEventListener('pagehide', onUnload)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('blur', leave)
       window.removeEventListener('focus', onFocus)
@@ -278,6 +293,11 @@ export default function PartidoPage() {
       ).json()
       if (!r.success) {
         setError(r.error || 'No se pudo registrar la respuesta')
+        return
+      }
+      if (r.data.timedOut || !r.data.feedback) {
+        setNotice(`⏰ Se acabó el tiempo en «${state.play.roundNames[state.play.rounds.length] ?? 'la ronda'}»: sumaste ${r.data.roundScore ?? 0}/3`)
+        setState(r.data.state)
         return
       }
       setFeedback({ chosen: index, correctIndex: r.data.feedback.correctIndex, question })
@@ -432,7 +452,7 @@ export default function PartidoPage() {
                     <p className="text-sm text-zinc-400 max-w-lg mx-auto">
                       Vas a jugar 5 rondas: 3 minijuegos y 2 de preguntas ({play.roundNames.join(', ')}). Cada ronda da de 0 a 3
                       puntos y la gana quien saque más: eso es un gol. Si empatan la ronda, nadie mete gol. El tiempo de cada ronda
-                      cuenta para el desempate en eliminatorias, y podés hacer una pausa entre ronda y ronda.
+                      cuenta para el desempate en eliminatorias, y podés hacer una pausa entre ronda y ronda. Cada ronda tiene su cronómetro (de 20 segundos a 2:30 minutos según el juego): cuando se acaba, la ronda se cierra con lo que lleves.
                     </p>
                     <p className="mx-auto flex max-w-lg items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-xs text-red-200">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -453,6 +473,11 @@ export default function PartidoPage() {
                     <p className="text-3xl sm:text-4xl font-black">{play.roundNames[play.rounds.length]}</p>
                     {play.roundKinds?.[play.rounds.length] && (
                       <p className="mx-auto max-w-md text-sm text-zinc-400">{GAME_INTRO[play.roundKinds[play.rounds.length]]}</p>
+                    )}
+                    {play.roundLimits?.[play.rounds.length] && (
+                      <p className="mx-auto inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-sm font-bold text-amber-200">
+                        <Timer className="h-4 w-4" /> Tienes {fmtLimit(play.roundLimits[play.rounds.length])} para esta ronda
+                      </p>
                     )}
                     {play.rounds.length > 0 && (
                       <p className="text-sm text-zinc-400">
@@ -490,6 +515,21 @@ export default function PartidoPage() {
                       ? 'Ya usaste tu advertencia: si sales de la ventana otra vez, pierdes la ronda'
                       : 'Anti trampa activo: no cambies de ventana durante la ronda'}
                   </p>
+                )}
+
+                {play.roundActive && !reveal && play.current?.timer && play.current.kind !== 'rayoexi' && (
+                  <div className="mb-4">
+                    <RoundTimer
+                      key={`timer-${play.current.roundIndex}`}
+                      limitSec={play.current.timer.limitSec}
+                      remainingMs={play.current.timer.remainingMs}
+                      onExpire={() => void act({ tick: true })}
+                    />
+                  </div>
+                )}
+
+                {notice && !reveal && (
+                  <p className="mb-4 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-center text-sm font-semibold text-amber-200">{notice}</p>
                 )}
 
                 {gameCurrent && (
