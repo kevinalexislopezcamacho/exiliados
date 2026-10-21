@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth/context'
 import { useEffect } from 'react'
+import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -100,10 +102,14 @@ export default function DashboardPage() {
             <div className="text-right">
               <p className="font-medium text-foreground">{user.full_name}</p>
               <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-                <span className="capitalize">{user.role === 'captain' ? 'Capitán' : 'Miembro'}</span>
-                <Badge variant="outline" className="border-primary/40 text-primary">
-                  Clan {clanLabel(user.clan)}
-                </Badge>
+                <span className="capitalize">
+                  {user.role === 'captain' ? 'Capitán' : user.role === 'guest' ? 'Invitado' : 'Miembro'}
+                </span>
+                {user.role !== 'guest' && (
+                  <Badge variant="outline" className="border-primary/40 text-primary">
+                    Clan {clanLabel(user.clan)}
+                  </Badge>
+                )}
               </div>
             </div>
 
@@ -122,6 +128,8 @@ export default function DashboardPage() {
       <main className="container mx-auto px-4 py-12">
         {user.role === 'captain' ? (
           <CaptainDashboard user={user} />
+        ) : user.role === 'guest' ? (
+          <GuestDashboard user={user} />
         ) : (
           <MemberDashboard user={user} />
         )}
@@ -179,6 +187,33 @@ function MemberDashboard({ user }: { user: any }) {
       </div>
 
       <ExternalResources />
+    </div>
+  )
+}
+
+// Invitado (no es de Rayo ni de Exiliados): solo juega el Mundial y los
+// minijuegos, así que no ve nada del clan.
+function GuestDashboard({ user }: { user: any }) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold text-foreground mb-2">Bienvenido, {user.full_name}</h2>
+        <p className="text-muted-foreground">Estás como invitado: tenés acceso al Mundial y a los minijuegos.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="p-6 bg-gradient-to-br from-amber-400/10 to-transparent border-amber-300/40">
+          <h3 className="font-bold text-lg text-primary">🏆 Mundial Exiliados</h3>
+          <p className="text-sm text-muted-foreground">Tus partidos, tu grupo y el cuadro del torneo.</p>
+          <Link href="/dashboard/torneo" className="mt-4 block">
+            <Button variant="outline" className="w-full justify-between border-primary/40 hover:bg-primary/10">
+              Ir al Mundial
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </Link>
+        </Card>
+        <MinigamesEntryCard />
+      </div>
     </div>
   )
 }

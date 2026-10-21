@@ -17,6 +17,8 @@ declare global {
   }
 }
 
+const GUEST_ALLOWED_ROUTES = ['/api/minigames', '/api/torneo']
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.['auth-token']
 
@@ -39,6 +41,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   if (!user) {
     return res.status(401).json({ success: false, error: 'Sesión inválida o expirada' })
+  }
+
+  // Los invitados (role 'guest', sin clan) solo juegan el Mundial y los
+  // minijuegos: cualquier otra ruta que pida sesión les queda cerrada.
+  if (user.role === 'guest' && !GUEST_ALLOWED_ROUTES.includes(req.baseUrl)) {
+    return res.status(403).json({ success: false, error: 'Los invitados solo tienen acceso al Mundial y a los minijuegos' })
   }
 
   req.user = user

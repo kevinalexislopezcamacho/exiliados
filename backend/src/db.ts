@@ -728,6 +728,7 @@ export async function initializeDatabase() {
   await linkRosterMemberIds(db)
   await mergeDuplicateRosterAccounts(db)
   await applyCaptainCorrections(db)
+  await replaceRemovedMemberWithGuest(db)
 }
 
 export const ROSTER_DEFAULT_PASSWORD = 'exiliados123'
@@ -890,6 +891,95 @@ async function applyCaptainCorrections(db: Client) {
     sql: `UPDATE members SET password = '', has_password = 0 WHERE role = 'member' AND password = ?`,
     args: [rosterDefaultHash],
   })
+}
+
+// santi_2026 dejó el clan, pero su lugar en el Mundial lo hereda
+// catupecumachu: un invitado (role 'guest', sin clan) que solo juega el
+// Mundial y los minijuegos (ver requireAuth). Solo se guarda el hash de su
+// contraseña; la contraseña en sí se le pasó por fuera. Se cubren las dos
+// formas en que aparece escrito su nick (santi_2026 / santii_2026).
+const REMOVED_USERNAMES = ['santi_2026', 'santii_2026'].map(slugifyUsername)
+const GUEST_USERNAME = 'catupecumachu'
+const GUEST_PASSWORD_HASH = 'cfe67984062997bf5d91d73da48c84b7cad4cda4cbea90d4a9c215f4c2633bde'
+// No tiene fila en el roster (de donde sale la bandera de los demás).
+const GUEST_COUNTRY_CODE = 'ar'
+
+// Crea la cuenta del invitado si no existe, le pasa a él el lugar de
+// santii_2026 en el torneo (mismo slot: hereda grupo, partidos y lo que ya
+// jugó) y borra a santii_2026 de todo lo demás. Idempotente: una vez borrado,
+// no queda nada que hacer.
+async function replaceRemovedMemberWithGuest(db: Client) {
+  let guest = (await db.execute({ sql: 'SELECT id FROM members WHERE username = ?', args: [GUEST_USERNAME] }))
+    .rows[0] as unknown as { id: number } | undefined
+  if (!guest) {
+    const result = await db.execute({
+      sql: `INSERT INTO members (username, password, role, full_name, clan, has_password) VALUES (?, ?, 'guest', ?, NULL, 1)`,
+      args: [GUEST_USERNAME, GUEST_PASSWORD_HASH, GUEST_USERNAME],
+    })
+    guest = { id: Number(result.lastInsertRowid) }
+    console.log(`Cuenta de invitado creada: ${GUEST_USERNAME}`)
+  }
+  const guestId = Number(guest.id)
+  // Si la cuenta ya existía (con otra contraseña o rol), queda igual a lo de acá.
+  await db.execute({
+    sql: `UPDATE members SET password = ?, has_password = 1, role = 'guest', clan = NULL WHERE id = ?`,
+    args: [GUEST_PASSWORD_HASH, guestId],
+  })
+  await db.execute({
+    sql: 'UPDATE torneo_participantes SET country_code = ? WHERE member_id = ?',
+    args: [GUEST_COUNTRY_CODE, guestId],
+  })
+
+  const removedRoster = (
+    (await db.execute('SELECT id, name, member_id FROM clan_members')).rows as unknown as Array<{
+      id: number
+      name: string
+      member_id: number | null
+    }>
+  ).filter((r) => REMOVED_USERNAMES.includes(slugifyUsername(r.name)))
+  const removedAccounts = (
+    await db.execute({
+      sql: `SELECT id FROM members WHERE username IN (${REMOVED_USERNAMES.map(() => '?').join(', ')})`,
+      args: REMOVED_USERNAMES,
+    })
+  ).rows as unknown as Array<{ id: number }>
+  const removedIds = new Set<number>(
+    [...removedRoster.map((r) => r.member_id), ...removedAccounts.map((a) => a.id)]
+      .filter((id): id is number => id !== null && id !== undefined)
+      .map(Number)
+  )
+  if (removedRoster.length === 0 && removedIds.size === 0) return
+
+  const statements: Array<{ sql: string; args: Array<string | number> }> = []
+  for (const oldId of removedIds) {
+    statements.push(
+      {
+        sql: `UPDATE torneo_participantes SET member_id = ?, name = ?, clan = NULL, country_code = ? WHERE member_id = ?`,
+        args: [guestId, GUEST_USERNAME, GUEST_COUNTRY_CODE, oldId],
+      },
+      { sql: 'UPDATE OR IGNORE torneo_inscritos SET member_id = ? WHERE member_id = ?', args: [guestId, oldId] },
+      { sql: 'DELETE FROM torneo_inscritos WHERE member_id = ?', args: [oldId] },
+      { sql: 'DELETE FROM torneo_sorteo_visto WHERE member_id = ?', args: [oldId] }
+    )
+  }
+  // El roster va antes que la cuenta: clan_members.member_id tiene FK a members.
+  for (const row of removedRoster) {
+    statements.push(
+      { sql: 'DELETE FROM battle_results WHERE clan_member_id = ?', args: [row.id] },
+      { sql: 'DELETE FROM clan_members WHERE id = ?', args: [row.id] }
+    )
+  }
+  for (const oldId of removedIds) {
+    statements.push(
+      { sql: 'DELETE FROM sessions WHERE user_id = ?', args: [oldId] },
+      { sql: 'DELETE FROM member_report_access WHERE member_id = ?', args: [oldId] },
+      { sql: 'DELETE FROM battle_match_submissions WHERE member_id = ?', args: [oldId] },
+      { sql: 'DELETE FROM minigame_plays WHERE member_id = ?', args: [oldId] },
+      { sql: 'DELETE FROM members WHERE id = ?', args: [oldId] }
+    )
+  }
+  await db.batch(statements, 'write')
+  console.log(`santi_2026 borrado; su lugar en el Mundial pasó a ${GUEST_USERNAME}`)
 }
 
 // Convierte cualquier código ISO 3166-1 alpha-2 (ej. "mx", "jp", "ru") a su

@@ -5,7 +5,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 interface User {
   id: number
   username: string
-  role: 'member' | 'captain'
+  role: 'member' | 'captain' | 'guest'
   full_name: string
   clan: string | null
   token: string
