@@ -840,10 +840,17 @@ export async function advanceTorneo(db: Client, torneo: Torneo) {
     // 2) Llenar el cuadro.
     const byStage = (stage: string) =>
       partidos.filter((m) => m.stage === stage).sort((a, b) => Number(a.bracket_pos) - Number(b.bracket_pos))
+    // Cada lado se llena apenas se conoce (el ganador pasa y espera rival);
+    // el partido no se abre para jugar hasta tener los dos.
     const setSlots = async (m: Partido, home: number | null, away: number | null) => {
-      if (home === null || away === null || m.home_slot !== null) return
-      await db.execute({ sql: 'UPDATE torneo_partidos SET home_slot = ?, away_slot = ? WHERE id = ?', args: [home, away, Number(m.id)] })
-      changed = true
+      if (m.home_slot === null && home !== null) {
+        await db.execute({ sql: 'UPDATE torneo_partidos SET home_slot = ? WHERE id = ? AND home_slot IS NULL', args: [home, Number(m.id)] })
+        changed = true
+      }
+      if (m.away_slot === null && away !== null) {
+        await db.execute({ sql: 'UPDATE torneo_partidos SET away_slot = ? WHERE id = ? AND away_slot IS NULL', args: [away, Number(m.id)] })
+        changed = true
+      }
     }
 
     const groupDone = partidos.filter((m) => m.stage === 'G').every((m) => m.status === 'jugado')
@@ -869,9 +876,11 @@ export async function advanceTorneo(db: Client, torneo: Torneo) {
       await setSlots(m, qf[p * 2] ?? null, qf[p * 2 + 1] ?? null)
     }
     const sf = byStage('SF')
-    if (sf.length === 2 && sf.every((m) => m.status === 'jugado')) {
-      for (const m of byStage('F')) await setSlots(m, sf[0].winner_slot, sf[1].winner_slot)
-      for (const m of byStage('3P')) await setSlots(m, loserOf(sf[0]), loserOf(sf[1]))
+    if (sf.length === 2) {
+      const sfWinners = winners('SF')
+      const sfLosers = sf.map((m) => (m.status === 'jugado' ? loserOf(m) : null))
+      for (const m of byStage('F')) await setSlots(m, sfWinners[0], sfWinners[1])
+      for (const m of byStage('3P')) await setSlots(m, sfLosers[0], sfLosers[1])
     }
 
     const final = byStage('F')[0]
