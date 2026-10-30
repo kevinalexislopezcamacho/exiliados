@@ -446,7 +446,7 @@ export default function PartidoPage() {
                   <div className="text-center space-y-4">
                     <p className="text-3xl font-black">¿Listo para el partido?</p>
                     <p className="text-sm text-zinc-400 max-w-lg mx-auto">
-                      Vas a jugar 5 rondas: 3 minijuegos y 2 de preguntas ({play.roundNames.join(', ')}). Cada ronda da de 0 a 3
+                      Vas a jugar 5 rondas: 3 minijuegos y 2 de preguntas. Cada ronda da de 0 a 3
                       puntos y la gana quien saque más: eso es un gol. Si empatan la ronda, nadie mete gol. El tiempo de cada ronda
                       cuenta para el desempate en eliminatorias, y podés hacer una pausa entre ronda y ronda. Cada ronda tiene su cronómetro (de 20 segundos a 2:30 minutos según el juego): cuando se acaba, la ronda se cierra con lo que lleves.
                     </p>
