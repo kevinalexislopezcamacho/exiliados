@@ -53,7 +53,6 @@ export default function GameEventsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState(emptyForm)
-  const [banner, setBanner] = useState<{ monthLabel: string; imageUrl: string } | null>(null)
   const [aiAvailable, setAiAvailable] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -67,10 +66,7 @@ export default function GameEventsPage() {
     fetch('/api/events/banner')
       .then((res) => res.json())
       .then((result) => {
-        if (result.success) {
-          setBanner(result.data)
-          setAiAvailable(!!result.aiAvailable)
-        }
+        if (result.success) setAiAvailable(!!result.aiAvailable)
       })
       .catch(() => {})
   }
@@ -253,18 +249,6 @@ export default function GameEventsPage() {
           <p className="text-xs text-muted-foreground">
             Nota: la lectura automática de la imagen aún no está activada en el servidor, así que al subir la foto solo se guarda y se muestra; los eventos se cargan aparte.
           </p>
-        )}
-
-        {banner?.imageUrl && (
-          <a href={banner.imageUrl} target="_blank" rel="noreferrer" className="block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={banner.imageUrl}
-              alt={`Calendario oficial de eventos ${banner.monthLabel}`}
-              className="w-full max-w-md mx-auto rounded-xl border border-border/50 shadow-lg"
-            />
-            <p className="text-center text-xs text-muted-foreground mt-2">Toca la imagen para verla completa</p>
-          </a>
         )}
 
         {isCaptain && showForm && (

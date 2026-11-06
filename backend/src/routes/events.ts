@@ -56,16 +56,17 @@ router.get('/', requireAuth, async (_req, res) => {
   }
 })
 
-// GET /api/events/banner - Imagen del calendario del mes (cualquier usuario logueado)
+// GET /api/events/banner - Estado de la imagen del calendario (cualquier usuario logueado)
 router.get('/banner', requireAuth, async (_req, res) => {
   try {
     const db = getDatabase()
-    const row = (await db.execute('SELECT month_label, image_data, updated_at FROM game_events_banner WHERE id = 1')).rows[0] as unknown as
-      | { month_label: string; image_data: string; updated_at: string }
+    // La imagen solo se guarda para la lectura automática: no se muestra en la página.
+    const row = (await db.execute('SELECT month_label, updated_at FROM game_events_banner WHERE id = 1')).rows[0] as unknown as
+      | { month_label: string; updated_at: string }
       | undefined
     res.json({
       success: true,
-      data: row ? { monthLabel: row.month_label, imageUrl: row.image_data, updatedAt: row.updated_at } : null,
+      data: row ? { monthLabel: row.month_label, updatedAt: row.updated_at } : null,
       aiAvailable: aiAvailable(),
     })
   } catch (error) {
