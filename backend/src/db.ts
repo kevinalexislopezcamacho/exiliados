@@ -289,6 +289,16 @@ export async function initializeDatabase() {
     )
   `)
 
+  // Imagen del calendario mensual de eventos (una sola, la última que se subió).
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS game_events_banner (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      month_label TEXT NOT NULL DEFAULT '',
+      image_data TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
   // Acceso a reportes por integrante (no por clan): solo chicolinas puede
   // prender/apagar el acceso de cada persona individualmente. La ausencia de
   // fila (o enabled=0) significa bloqueado.

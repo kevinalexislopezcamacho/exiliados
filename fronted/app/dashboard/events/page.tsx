@@ -3,11 +3,22 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth/context'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { ArrowLeft, Calendar, Edit2, Plus, Trash, X } from 'lucide-react'
+import { ArrowLeft, Calendar, Edit2, ImageUp, Loader2, Plus, Trash, X } from 'lucide-react'
+
+// Reduce la foto antes de subirla (Vercel limita el tamaño de la petición).
+async function shrinkImage(file: File, maxWidth = 1400): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, maxWidth / bitmap.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bitmap.width * scale)
+  canvas.height = Math.round(bitmap.height * scale)
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  return await new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo procesar la imagen'))), 'image/jpeg', 0.85))
+}
 
 interface GameEvent {
   id: number
@@ -42,10 +53,61 @@ export default function GameEventsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState(emptyForm)
+  const [banner, setBanner] = useState<{ monthLabel: string; imageUrl: string } | null>(null)
+  const [aiAvailable, setAiAvailable] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [notice, setNotice] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
+
+  const fetchBanner = () => {
+    fetch('/api/events/banner')
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.success) {
+          setBanner(result.data)
+          setAiAvailable(!!result.aiAvailable)
+        }
+      })
+      .catch(() => {})
+  }
+
+  // Sube la foto del mes (reemplaza la anterior) y, si la lectura automática está
+  // activada, deja los eventos nuevos y borra los viejos.
+  const handleImage = async (file: File | undefined) => {
+    if (!file) return
+    setError('')
+    setNotice('')
+    if (!confirm('Se reemplazará la imagen anterior y, si es posible, los eventos viejos se borrarán y quedarán los de la nueva imagen. ¿Seguir?')) {
+      if (fileInput.current) fileInput.current.value = ''
+      return
+    }
+    setUploading(true)
+    try {
+      const blob = await shrinkImage(file)
+      const body = new FormData()
+      body.append('image', blob, 'calendario.jpg')
+      const up = await (await fetch('/api/events/image', { method: 'POST', body })).json()
+      if (!up.success) throw new Error(up.error || 'No se pudo subir la imagen')
+      fetchBanner()
+
+      const imp = await (await fetch('/api/events/import-image', { method: 'POST' })).json()
+      if (imp.success) {
+        setNotice(`Listo: se cargaron ${imp.data.count} eventos de ${imp.data.monthLabel} y se borraron los anteriores.`)
+        fetchEvents()
+      } else {
+        setNotice(`La imagen se guardó, pero los eventos no se actualizaron solos: ${imp.error}`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error subiendo la imagen')
+    } finally {
+      setUploading(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
 
   const fetchEvents = () => {
     setLoadingEvents(true)
@@ -59,7 +121,11 @@ export default function GameEventsPage() {
   }
 
   useEffect(() => {
-    if (user) fetchEvents()
+    if (user) {
+      fetchEvents()
+      fetchBanner()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const isCaptain = user?.role === 'captain'
@@ -151,16 +217,23 @@ export default function GameEventsPage() {
           </div>
 
           {isCaptain && (
-            <Button
-              onClick={() => {
-                resetForm()
-                setShowForm((s) => !s)
-              }}
-              className="gap-2"
-            >
-              {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              {showForm ? 'Cancelar' : 'Nuevo evento'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleImage(e.target.files?.[0])} />
+              <Button variant="outline" className="gap-2" disabled={uploading} onClick={() => fileInput.current?.click()}>
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageUp className="w-4 h-4" />}
+                {uploading ? 'Subiendo...' : 'Subir imagen del mes'}
+              </Button>
+              <Button
+                onClick={() => {
+                  resetForm()
+                  setShowForm((s) => !s)
+                }}
+                className="gap-2"
+              >
+                {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {showForm ? 'Cancelar' : 'Nuevo evento'}
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -170,6 +243,28 @@ export default function GameEventsPage() {
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">
             {error}
           </div>
+        )}
+
+        {notice && (
+          <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm">{notice}</div>
+        )}
+
+        {isCaptain && !aiAvailable && (
+          <p className="text-xs text-muted-foreground">
+            Nota: la lectura automática de la imagen aún no está activada en el servidor, así que al subir la foto solo se guarda y se muestra; los eventos se cargan aparte.
+          </p>
+        )}
+
+        {banner?.imageUrl && (
+          <a href={banner.imageUrl} target="_blank" rel="noreferrer" className="block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={banner.imageUrl}
+              alt={`Calendario oficial de eventos ${banner.monthLabel}`}
+              className="w-full max-w-md mx-auto rounded-xl border border-border/50 shadow-lg"
+            />
+            <p className="text-center text-xs text-muted-foreground mt-2">Toca la imagen para verla completa</p>
+          </a>
         )}
 
         {isCaptain && showForm && (
@@ -252,7 +347,7 @@ export default function GameEventsPage() {
                         <p className="text-xs font-bold text-primary uppercase tracking-wide">{event.dateLabel}</p>
                         <h3 className="font-bold text-lg mt-0.5">{event.title}</h3>
                         {event.description && (
-                          <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
+                          <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">{event.description}</p>
                         )}
                       </div>
                       {isCaptain && (
